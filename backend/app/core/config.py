@@ -1,9 +1,10 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
+
+from pydantic import Field, PositiveInt, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     APP_NAME: str = "AI Knowledge Hub"
@@ -15,8 +16,11 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "123456"
     DB_NAME: str = "ai_knowledge_hub"
 
-    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    JWT_SECRET_KEY: SecretStr = Field(min_length=32)
+    JWT_ALGORITHM: Literal["HS256"] = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: PositiveInt = 30
 
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     @property
     def database_url(self) -> str:

@@ -12,7 +12,7 @@ Router
   |
 Service (Sprint1)
   |
-Repository (Sprint2)
+Repository (Sprint1)
   |
 SQLAlchemy
   |

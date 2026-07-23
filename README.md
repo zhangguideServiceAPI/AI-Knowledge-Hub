@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 0 已完成，准备进入 Sprint 1 - Authentication**
+当前阶段：**Sprint 2 - Session & Identity Management 进行中**
 
 已经完成：
 
@@ -19,8 +19,16 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Docker Compose 本地 MySQL
 - Liveness 和 Readiness 健康检查
 - pytest 健康接口测试
+- User Model 和第一份 Alembic Migration
+- User Repository 与事务边界
+- bcrypt 密码哈希和验证
+- `POST /auth/register` 用户注册接口
+- JWT Access Token 配置、签发和验证测试
+- `POST /auth/login` 用户登录接口
+- `GET /users/me` 当前用户接口与 Bearer 认证依赖
+- 全局业务异常到 HTTP 响应的统一映射
 
-下一步进入 Sprint 1，完成用户模型、数据库迁移、密码哈希、注册、登录和 JWT 认证。
+当前从 Story 2.0 认证体系演进开始，先理解并完成设计文档，再进入 Redis Foundation。
 
 ## 技术栈
 
@@ -34,7 +42,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Docker / Docker Compose
 - pytest
 
-Redis、JWT、RAG、Agent、监控、CI/CD 和 k3s 将在后续 Sprint 中逐步引入。
+Redis、RAG、Agent、监控、CI/CD 和 k3s 将在后续 Sprint 中逐步引入。
 
 ## 项目结构
 
@@ -78,7 +86,8 @@ cp backend/.env.example backend/.env
 cp infra/.env.example infra/.env
 ```
 
-示例密码只用于本地开发。禁止提交真实 `.env` 文件。
+示例密码只用于本地开发。使用 `openssl rand -hex 32` 生成
+`JWT_SECRET_KEY`，并只写入 `backend/.env`。禁止提交真实 `.env` 文件。
 
 ### 2. 安装后端依赖
 
@@ -163,13 +172,15 @@ docker compose \
 
 ## 项目文档
 
+- [文档索引](docs/README.md)
 - [项目宪法](docs/PROJECT_CONSTITUTION.md)
-- [项目愿景](docs/00_项目愿景.md)
-- [学习路线](docs/01_学习路线.md)
-- [当前 Sprint](docs/Sprint/Sprint0.md)
-- [API 规范](docs/04_API规范.md)
+- [项目愿景](docs/项目愿景.md)
+- [AI 协作规范](docs/AI协作规范.md)
+- [Code Review 规范](docs/CodeReview规范.md)
+- [当前 Sprint](docs/Sprint/Sprint1.md)
+- [API 规范](docs/API规范.md)
 - [架构决策记录](docs/architecture/adr/)
 
 ## Roadmap
 
-项目将逐步实现用户认证、用户中心、文档处理、AI Chat、RAG、Workflow、Agent、MCP、监控、异步任务和 k3s。
+项目将逐步实现用户认证、认证会话、用户中心、文档处理、AI Chat、RAG、Workflow、Agent、MCP、监控、异步任务和 k3s。

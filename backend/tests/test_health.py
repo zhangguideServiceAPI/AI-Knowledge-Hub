@@ -16,11 +16,11 @@ def test_liveness_returns_ok() -> None:
 
 
 def test_readiness_returns_ready(
-     monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    
+
     monkeypatch.setattr(
-        "app.api.health.is_application_ready", 
+        "app.api.health.is_application_ready",
         lambda: True,
     )
 
@@ -31,11 +31,11 @@ def test_readiness_returns_ready(
 
 
 def test_readiness_returns_unavailable(
-     monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
     monkeypatch.setattr(
-        "app.api.health.is_application_ready", 
+        "app.api.health.is_application_ready",
         lambda: False,
     )
 
