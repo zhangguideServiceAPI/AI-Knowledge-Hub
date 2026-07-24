@@ -27,8 +27,9 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - `POST /auth/login` 用户登录接口
 - `GET /users/me` 当前用户接口与 Bearer 认证依赖
 - 全局业务异常到 HTTP 响应的统一映射
+- Story 2.0 认证体系演进学习与架构文档
 
-当前从 Story 2.0 认证体系演进开始，先理解并完成设计文档，再进入 Redis Foundation。
+当前进入 Story 2.1 Redis Foundation，先理解 Redis 在认证系统中的职责、TTL 和原子操作，再完成基础设施接入。
 
 ## 技术栈
 

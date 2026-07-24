@@ -167,17 +167,17 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.0 Authentication Evolution
+Current Story: Story 2.1 Redis Foundation
 Current Goal:
-  - Understand Authentication Evolution
-  - Produce Authentication Evolution Documentation
-  - Do Not Implement Redis Before Story 2.1 Design
+  - Understand Why Authentication Uses Redis
+  - Learn Redis Memory Store, TTL, and Atomic Operations
+  - Produce ADR-0015 Before Session Architecture Design
 
 In Progress:
   - Session and Identity Management
+  - Redis Foundation
 
 Not Started:
-  - Redis
   - AI Chat
   - RAG
 ```
