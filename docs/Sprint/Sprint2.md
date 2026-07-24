@@ -5,13 +5,73 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.0 Authentication Evolution
-Current Goal: Understand the evolution from Cookie Session to JWT + Redis Session
+Current Story: Story 2.1 Redis Foundation
+Current Goal: Understand why authentication uses Redis
+Current Step: Distinguish process memory, Redis, and database storage
 ```
 
 ## Sprint 目标
 
 Sprint 2 的目标不是单独学习 Redis，也不是只实现 Refresh Token，而是构建企业级 Session（会话）管理体系，为未来 AI Platform 打下认证基础。
+
+1. 能解释 Cookie、Session、JWT、Refresh Token、Redis Session、OAuth2/OIDC 各自解决什么问题。
+2. 能设计 Access/Refresh Token 的签发、轮换、撤销、过期和重放防护。
+3. 能正确使用 Redis 的 TTL、原子操作和数据结构支撑认证，而不把 Redis 只当缓存。
+4. 能设计多设备会话、浏览器安全、Secret 轮换及 Redis 故障策略。
+5. 能用 Fake/Stub 和真实 Redis 分层测试，并建立安全事件日志。
+
+## 学习推进方式
+
+Sprint 2 内容较多，按学习依赖逐步推进，不要求一次理解全部内容。
+
+每次只学习当前 Story 中的一个小步骤：
+
+```text
+理解概念
+  -> 完成小练习
+  -> 开发者实现关键代码
+  -> AI Review
+  -> 测试验证
+  -> 记录总结
+```
+
+如果当前概念没有理解，暂停编码和后续 Story，先通过项目中的真实场景继续讲解和练习。
+
+建议学习顺序：
+
+```text
+Story 2.0 Authentication Evolution
+  -> Story 2.1 Redis Foundation
+  -> Authentication Security 基础概念预习
+  -> Story 2.2 Session Architecture Design
+  -> Story 2.3 Refresh Token Rotation
+  -> Story 2.4 Logout
+  -> Story 2.5 Client Refresh Contract
+  -> Story 2.6 Authentication Security Review
+  -> Story 2.7 Testing
+  -> Story 2.8 Observability
+  -> Story 2.9 User Session Design
+  -> Sprint Review
+```
+
+Security 基础概念在架构设计前预习，是为了让 Replay Attack、Token Hash 和过期策略进入设计；完整安全验收仍在 Story 2.6 完成。
+
+### 当前学习检查点
+
+- Story 2.0 Authentication Evolution：已完成（2026-07-24）。
+- 已完成（2026-07-24）：区分 Cookie、认证 Session、SQLAlchemy Session 和 JWT。
+- 已完成（2026-07-24）：理解多设备 Session 需要使用独立 Session ID，不能只用 User ID 作为唯一 Key。
+- 已完成（2026-07-24）：理解 JWT 验证和 Redis Session 验证的职责不同，Session 不存在时认证失败。
+- 已完成（2026-07-24）：理解有状态与无状态认证，以及无状态 Access Token 不能被单独立即撤销。
+- 已完成（2026-07-24）：理解 Access Token、Refresh Token 和 Redis Session 的不同职责。
+- 已完成（2026-07-24）：理解无服务端 Session 的 Refresh Token 在 Logout、撤销、Rotation 和多设备管理上的限制。
+- 已完成（2026-07-24）：理解 OAuth2 解决授权问题，OIDC 在 OAuth2 之上解决身份认证问题，当前项目暂不需要立即引入。
+- 已完成（2026-07-24）：理解 Authorization Code、Token Exchange、第三方身份到本地用户的映射，以及本地 Session 创建流程。
+- 已完成（2026-07-24）：完成 `docs/architecture/authentication-evolution.md` 初稿。
+- 已完成（2026-07-24）：文档 Review 通过，确认当前项目选择 JWT + Redis Session 的原因和边界。
+- 当前 Story：2.1 Redis Foundation。
+- 当前 Step：区分进程内存、Redis 和数据库存储。
+- 完成标志：能够说明三种存储的生命周期、共享范围和适用场景。
 
 ## North Star
 
@@ -45,7 +105,7 @@ Scalability（可扩展）
 
 ## Story 2.0: Authentication Evolution
 
-**状态：进行中（2026-07-23）**
+**状态：已完成（2026-07-24）**
 
 ### 学习目标
 
@@ -67,9 +127,18 @@ OIDC / OAuth2
 
 - `docs/architecture/authentication-evolution.md`
 
+### 完成结果
+
+- 理解 Cookie、认证 Session、SQLAlchemy Session 和 JWT 的职责边界。
+- 理解 Access Token、Refresh Token 和 Redis Session 的生命周期及撤销边界。
+- 理解有状态与无状态认证、多设备 Session 和 Refresh Token Rotation 的演进原因。
+- 区分 OAuth2 授权与 OIDC 身份认证，理解 Authorization Code 和本地用户映射流程。
+- 完成并 Review `docs/architecture/authentication-evolution.md`。
+- Documentation Review：通过，无阻断问题，综合评分 96/100。
+
 ## Story 2.1: Redis Foundation
 
-**状态：未开始**
+**状态：进行中（2026-07-24）**
 
 ### 技术实现
 
