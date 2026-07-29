@@ -1,11 +1,14 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 
 from app.core.exceptions import (
     EmailAlreadyRegisteredError,
     InactiveUserError,
     InvalidAccessTokenError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
+    LoginRateLimitExceededError,
 )
 from app.schemas.error import ErrorResponse
 
@@ -51,6 +54,32 @@ async def invalid_access_token_handler(
     )
 
 
+async def login_rate_limit_exceeded_handler(
+    _request: Request,
+    _error: LoginRateLimitExceededError,
+) -> JSONResponse:
+    response = ErrorResponse(
+        detail="Too many login attempts. Try again later.",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=response.model_dump(),
+    )
+
+
+async def redis_unavailable_handler(
+    _request: Request,
+    _error: RedisError,
+) -> JSONResponse:
+    response = ErrorResponse(
+        detail="Authentication service is temporarily unavailable.",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
+    )
+
+
 async def inactive_user_handler(
     _request: Request,
     _error: InactiveUserError,
@@ -60,6 +89,19 @@ async def inactive_user_handler(
     )
     return JSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
+        content=response.model_dump(),
+    )
+
+
+async def invalid_refresh_token_handler(
+    _request: Request,
+    _error: InvalidRefreshTokenError,
+) -> JSONResponse:
+    response = ErrorResponse(
+        detail="Invalid or expired refresh token.",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
         content=response.model_dump(),
     )
 
@@ -76,6 +118,18 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidAccessTokenError,
         invalid_access_token_handler,
+    )
+    app.add_exception_handler(
+        InvalidRefreshTokenError,
+        invalid_refresh_token_handler,
+    )
+    app.add_exception_handler(
+        LoginRateLimitExceededError,
+        login_rate_limit_exceeded_handler,
+    )
+    app.add_exception_handler(
+        RedisError,
+        redis_unavailable_handler,
     )
     app.add_exception_handler(
         InactiveUserError,

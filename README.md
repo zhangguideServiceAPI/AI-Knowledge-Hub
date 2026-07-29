@@ -16,8 +16,8 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Python logging
 - SQLAlchemy 2.x Engine、Session 和 Base
 - Alembic Migration
-- Docker Compose 本地 MySQL
-- Liveness 和 Readiness 健康检查
+- Docker Compose 本地 MySQL 和 Redis
+- 独立 Liveness 和包含 MySQL、Redis 状态的 Readiness 健康检查
 - pytest 健康接口测试
 - User Model 和第一份 Alembic Migration
 - User Repository 与事务边界
@@ -28,8 +28,11 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - `GET /users/me` 当前用户接口与 Bearer 认证依赖
 - 全局业务异常到 HTTP 响应的统一映射
 - Story 2.0 认证体系演进学习与架构文档
+- Redis 固定窗口登录限流、HTTP 429 和 Redis 故障关闭策略
+- Redis Session Repository、TTL、多设备 Sorted Set 索引和失效索引清理
+- Refresh JWT、固定/Sliding 过期计算和 Redis Lua 原子 Rotation
 
-当前进入 Story 2.1 Redis Foundation，先理解 Redis 在认证系统中的职责、TTL 和原子操作，再完成基础设施接入。
+Story 2.3 Refresh Token Rotation 已完成，当前推进 Story 2.4 Logout。Redis Repository 原子轮换、Replay 撤销和 Refresh Service/API 已通过 Mock、API 与真实 Redis 验证，下一步实现当前设备 Session 撤销。
 
 ## 技术栈
 
@@ -40,10 +43,11 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - SQLAlchemy 2
 - Alembic
 - MySQL 8.4
+- Redis 7.4
 - Docker / Docker Compose
 - pytest
 
-Redis、RAG、Agent、监控、CI/CD 和 k3s 将在后续 Sprint 中逐步引入。
+RAG、Agent、监控、CI/CD 和 k3s 将在后续 Sprint 中逐步引入。
 
 ## 项目结构
 
@@ -87,8 +91,8 @@ cp backend/.env.example backend/.env
 cp infra/.env.example infra/.env
 ```
 
-示例密码只用于本地开发。使用 `openssl rand -hex 32` 生成
-`JWT_SECRET_KEY`，并只写入 `backend/.env`。禁止提交真实 `.env` 文件。
+示例密码只用于本地开发。使用 `openssl rand -hex 32` 分别生成
+`JWT_SECRET_KEY` 和 `REDIS_PASSWORD`，并只写入 `backend/.env`。禁止提交真实 `.env` 文件。
 
 ### 2. 安装后端依赖
 
@@ -98,14 +102,14 @@ uv sync --dev
 cd ..
 ```
 
-### 3. 启动 MySQL
+### 3. 启动 MySQL 和 Redis
 
 ```bash
 docker compose \
   --env-file backend/.env \
   --env-file infra/.env \
   -f infra/compose.dev.yaml \
-  up -d --wait mysql
+  up -d --wait mysql redis
 ```
 
 ### 4. 执行数据库迁移
@@ -146,7 +150,7 @@ curl http://127.0.0.1:8000/health/ready
 ```
 
 ```json
-{"status":"ready","database":"ok"}
+{"status":"ready","database":"ok","redis":"ok"}
 ```
 
 ## 测试
@@ -155,6 +159,12 @@ curl http://127.0.0.1:8000/health/ready
 
 ```bash
 uv run pytest -q
+```
+
+普通测试默认跳过需要真实外部服务的 Integration Test。Redis 已启动时显式运行：
+
+```bash
+RUN_REDIS_INTEGRATION_TESTS=1 uv run pytest -m integration -q
 ```
 
 ## 停止本地服务
@@ -169,7 +179,7 @@ docker compose \
   down
 ```
 
-普通 `down` 会保留 MySQL 数据。只有明确需要删除本地数据库时，才使用 `down -v`。
+普通 `down` 会保留 MySQL 和 Redis 的 Named Volume。只有明确需要删除本地数据时，才使用 `down -v`。
 
 ## 项目文档
 
@@ -178,7 +188,7 @@ docker compose \
 - [项目愿景](docs/项目愿景.md)
 - [AI 协作规范](docs/AI协作规范.md)
 - [Code Review 规范](docs/CodeReview规范.md)
-- [当前 Sprint](docs/Sprint/Sprint1.md)
+- [当前 Sprint](docs/Sprint/Sprint2.md)
 - [API 规范](docs/API规范.md)
 - [架构决策记录](docs/architecture/adr/)
 

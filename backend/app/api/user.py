@@ -6,7 +6,6 @@ from app.api.dependencies import get_current_user
 from app.schemas.error import ErrorResponse
 from app.schemas.user import UserResponse
 
-
 router = APIRouter(
     prefix="/users",
     tags=["Users"],

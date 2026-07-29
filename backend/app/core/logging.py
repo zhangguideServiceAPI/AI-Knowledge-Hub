@@ -2,7 +2,6 @@ import logging
 
 from app.core.config import settings
 
-
 logger = logging.getLogger("ai_knowledge_hub")
 
 

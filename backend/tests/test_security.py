@@ -4,12 +4,22 @@ import pytest
 from jose import JWTError, jwt
 
 from app.core.config import settings
-from app.core.exceptions import InvalidAccessTokenError
+from app.core.exceptions import (
+    InvalidAccessTokenError,
+    InvalidRefreshTokenError,
+)
 from app.core.security import (
     BCRYPT_PASSWORD_MAX_BYTES,
+    SessionExpiration,
+    calculate_initial_session_expiration,
+    calculate_rotated_session_expiration,
     create_access_token,
+    create_refresh_token,
     decode_access_token,
+    decode_refresh_token,
+    generate_session_id,
     hash_password,
+    hash_refresh_token,
     verify_password,
 )
 
@@ -73,6 +83,48 @@ def test_create_access_token_contains_expected_claims() -> None:
     assert payload["exp"] - payload["iat"] == (
         settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
+
+
+# Session 剩余 10 分钟
+#   -> Access 只有 10 分钟
+def test_create_access_token_does_not_outlive_session() -> None:
+    session_expires_at = int(datetime.now(timezone.utc).timestamp()) + 600
+
+    token = create_access_token(
+        user_id=123,
+        session_expires_at=session_expires_at,
+    )
+    payload = jwt.decode(
+        token,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+
+    assert payload["exp"] == session_expires_at
+    assert payload["exp"] - payload["iat"] <= 600
+
+
+# Session 剩余 7 天
+#   -> Access 仍只有 30 分钟
+def test_create_access_token_does_not_extend_default_lifetime() -> None:
+    session_expires_at = int(
+        (datetime.now(timezone.utc) + timedelta(days=7)).timestamp()
+    )
+
+    token = create_access_token(
+        user_id=123,
+        session_expires_at=session_expires_at,
+    )
+    payload = jwt.decode(
+        token,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+
+    assert payload["exp"] - payload["iat"] == (
+        settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+    assert payload["exp"] < session_expires_at
 
 
 def test_access_token_rejects_wrong_secret() -> None:
@@ -191,3 +243,210 @@ def test_decode_access_token_rejects_non_positive_user_id() -> None:
         decode_access_token(token)
 
     assert error.value.__cause__ is None
+
+
+def test_hash_refresh_token_returns_sha256_digest() -> None:
+    token = "refresh-token"
+
+    token_hash = hash_refresh_token(token)
+
+    assert token_hash == (
+        "0eb17643d4e9261163783a420859c92c7d212fa9624106a12b510afbec266120"
+    )
+    assert token_hash != token
+
+
+def test_generate_session_id_returns_unique_random_values() -> None:
+    first_session_id = generate_session_id()
+    second_session_id = generate_session_id()
+
+    assert isinstance(first_session_id, str)
+    assert len(first_session_id) >= 32
+    assert first_session_id != second_session_id
+
+
+def test_calculate_initial_session_expiration_in_absolute_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 临时切换全局 Settings，测试结束后 pytest 会自动恢复。
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "absolute")
+    monkeypatch.setattr(settings, "SESSION_TTL_DAYS", 7)
+
+    expiration = calculate_initial_session_expiration(created_at=1_000)
+
+    assert expiration == SessionExpiration(
+        expires_at=605_800, absolute_expires_at=605_800
+    )
+
+
+def test_calculate_initial_session_expiration_in_sliding_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "sliding")
+    monkeypatch.setattr(settings, "SESSION_TTL_DAYS", 7)
+    monkeypatch.setattr(settings, "SESSION_ABSOLUTE_MAX_DAYS", 30)
+
+    expiration = calculate_initial_session_expiration(created_at=1_000)
+
+    assert expiration == SessionExpiration(
+        expires_at=605_800,
+        absolute_expires_at=2_593_000,
+    )
+
+
+def test_rotated_session_expiration_stays_fixed_in_absolute_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "absolute")
+
+    expires_at = calculate_rotated_session_expiration(
+        rotated_at=500_000,
+        current_expires_at=605_800,
+        absolute_expires_at=605_800,
+    )
+
+    assert expires_at == 605_800
+
+
+def test_rotated_session_expiration_extends_in_sliding_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "sliding")
+    monkeypatch.setattr(settings, "SESSION_TTL_DAYS", 7)
+
+    expires_at = calculate_rotated_session_expiration(
+        rotated_at=500_000,
+        current_expires_at=605_800,
+        absolute_expires_at=2_593_000,
+    )
+
+    assert expires_at == 1_104_800
+
+
+def test_rotated_session_expiration_stops_at_absolute_max(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "sliding")
+    monkeypatch.setattr(settings, "SESSION_TTL_DAYS", 7)
+
+    expires_at = calculate_rotated_session_expiration(
+        rotated_at=2_500_000,
+        current_expires_at=2_500_000,
+        absolute_expires_at=2_593_000,
+    )
+
+    assert expires_at == 2_593_000
+
+
+def test_create_refresh_token_contains_expected_claims() -> None:
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
+
+    token = create_refresh_token(
+        user_id=42,
+        session_id="session-abc",
+        expires_at=expires_at,
+    )
+    payload = jwt.decode(
+        token,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+
+    assert payload["sub"] == "42"
+    assert payload["type"] == "refresh"
+    assert payload["sid"] == "session-abc"
+    assert isinstance(payload["jti"], str)
+    assert len(payload["jti"]) >= 32
+    assert isinstance(payload["iat"], int)
+    assert payload["exp"] == expires_at
+
+
+# 再验证同一 Session 每次 Rotation 的 jti 不同：
+def test_create_refresh_token_rotates_jti_for_same_session() -> None:
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
+
+    first_token = create_refresh_token(42, "session-abc", expires_at)
+    second_token = create_refresh_token(42, "session-abc", expires_at)
+
+    first_payload = jwt.decode(
+        first_token,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+    second_payload = jwt.decode(
+        second_token,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+
+    assert first_payload["sid"] == second_payload["sid"]
+    assert first_payload["jti"] != second_payload["jti"]
+    assert first_token != second_token
+
+
+def test_decode_refresh_token_returns_claims() -> None:
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
+    token = create_refresh_token(42, "session-abc", expires_at)
+
+    claims = decode_refresh_token(token)
+
+    assert claims.user_id == 42
+    assert claims.session_id == "session-abc"
+    assert len(claims.token_id) >= 32
+    assert isinstance(claims.issued_at, int)
+    assert claims.expires_at == expires_at
+
+
+def test_decode_refresh_token_rejects_access_token() -> None:
+    token = create_access_token(42)
+
+    with pytest.raises(InvalidRefreshTokenError) as error:
+        decode_refresh_token(token)
+
+    assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "missing_claim",
+    ["sub", "sid", "jti", "iat", "exp"],
+)
+def test_decode_refresh_token_requires_claims(missing_claim: str) -> None:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": "42",
+        "type": "refresh",
+        "sid": "session-abc",
+        "jti": "token-abc",
+        "iat": now,
+        "exp": now + timedelta(days=7),
+    }
+    payload.pop(missing_claim)
+    token = jwt.encode(
+        payload,
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    with pytest.raises(InvalidRefreshTokenError):
+        decode_refresh_token(token)
+
+
+def test_decode_refresh_token_rejects_expired_token() -> None:
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": "42",
+            "type": "refresh",
+            "sid": "session-abc",
+            "jti": "token-abc",
+            "iat": now - timedelta(minutes=2),
+            "exp": now - timedelta(minutes=1),
+        },
+        settings.JWT_SECRET_KEY.get_secret_value(),
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    with pytest.raises(InvalidRefreshTokenError) as error:
+        decode_refresh_token(token)
+
+    assert isinstance(error.value.__cause__, JWTError)

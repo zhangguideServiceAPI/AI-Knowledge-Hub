@@ -12,7 +12,7 @@ API -> Service -> Database
 - `app/services/`：应用逻辑和依赖编排
 - `app/schemas/`：请求与响应协议
 - `app/models/`：SQLAlchemy 模型
-- `app/db/`：Engine、Session 和数据库探测
+- `app/db/`：SQLAlchemy Engine、Session、Redis 客户端和依赖探测
 - `app/core/`：配置和日志
 
 ## 依赖管理
@@ -47,4 +47,10 @@ uv run alembic revision --autogenerate -m "describe the change"
 
 ```bash
 uv run pytest -q
+```
+
+普通测试默认跳过需要真实 Redis 的 Integration Test。显式运行真实 Redis 测试：
+
+```bash
+RUN_REDIS_INTEGRATION_TESTS=1 uv run pytest -m integration -q
 ```

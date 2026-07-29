@@ -167,15 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.1 Redis Foundation
+Current Story: Story 2.4 Logout
 Current Goal:
-  - Understand Why Authentication Uses Redis
-  - Learn Redis Memory Store, TTL, and Atomic Operations
-  - Produce ADR-0015 Before Session Architecture Design
+  - Revoke the Current Device Session in Redis
+  - Keep Already Issued Access Tokens Naturally Expiring
 
 In Progress:
   - Session and Identity Management
-  - Redis Foundation
+  - Current Device Logout
 
 Not Started:
   - AI Chat

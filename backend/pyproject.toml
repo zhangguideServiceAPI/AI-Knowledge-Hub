@@ -14,6 +14,7 @@ dependencies = [
     "pymysql==1.1.1",
     "python-dotenv==1.0.1",
     "python-jose[cryptography]==3.5.0",
+    "redis==8.0.1",
     "sqlalchemy==2.0.36",
     "uvicorn[standard]==0.34.0",
 ]
@@ -28,3 +29,6 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: requires real external services such as Redis",
+]
