@@ -32,7 +32,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Redis Session Repository、TTL、多设备 Sorted Set 索引和失效索引清理
 - Refresh JWT、固定/Sliding 过期计算和 Redis Lua 原子 Rotation
 
-Story 2.3 Refresh Token Rotation 已完成，当前推进 Story 2.4 Logout。Redis Repository 原子轮换、Replay 撤销和 Refresh Service/API 已通过 Mock、API 与真实 Redis 验证，下一步实现当前设备 Session 撤销。
+Story 2.4 Logout 已完成，当前推进 Story 2.5 Client Refresh Contract。登录、Refresh Rotation、Replay 撤销和当前设备 Session 撤销已通过 Mock、API 与真实 Redis 验证，下一步设计客户端单航班 Refresh 与一次重试状态机。
 
 ## 技术栈
 

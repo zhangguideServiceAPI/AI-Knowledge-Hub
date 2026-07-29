@@ -176,7 +176,7 @@ sequenceDiagram
 
 ## 9. 后续边界
 
-- Story 2.3：原子 Rotation 和 Replay Attack。
-- Story 2.4：Logout API 与客户端契约。
+- Story 2.3：原子 Rotation 和 Replay Attack 已实现。
+- Story 2.4：Logout API 与客户端契约已实现。
 - Story 2.6：Sliding Session、Absolute Expiration 和 Secret Rotation 安全 Review。
 - Story 2.9：IP、User Agent、当前设备标识和 Session 管理接口设计。

@@ -12,7 +12,7 @@
 
 ## 决策
 
-- 普通 API 使用短期 Access Token，默认不查询 Redis；Refresh Token 只允许提交到 `/auth/refresh`。
+- 普通 API 使用短期 Access Token，默认不查询 Redis；Refresh Token 只允许提交到 `/auth/refresh` 和当前设备 `/auth/logout`。
 - 登录和 Refresh 成功后都返回新的 Access Token 与 Refresh Token，以及二者从响应时刻开始计算的剩余有效秒数。
 - Refresh Token 使用 JWT，并包含 `sub`、`type=refresh`、`sid`、`jti`、`iat` 和 `exp`。
 - 同一 Session 的 Rotation 保持 `sid` 不变，每次签发生成新的 `jti`、Refresh JWT 和 Token Hash。
@@ -44,6 +44,8 @@
 - 客户端必须安全保存 Refresh Token，并在 Rotation 成功后原子替换本地 Token Pair。
 - 固定过期模式下，`refresh_expires_in` 会随时间减少，不能在每次 Rotation 后固定返回 7 天。
 - Logout 删除 Redis Session 后，Refresh 立即失败，但已经签发的 Access Token 仍等待自身过期。
+- Logout 必须校验提交 Refresh Token 的 Hash 是否仍是 Session 当前版本；旧 Token Hash 不匹配时不得删除当前 Session。
+- Session 已不存在时 Logout 返回成功，保持重复请求幂等；Redis 故障时返回 503，不能假装撤销成功。
 - Refresh Service/API 已完成，本文和 API 文档中的契约现已成为启用接口。
 - Replay Attack 的日志、Session 撤销范围和并发误判策略仍需 ADR-0018 明确。
 

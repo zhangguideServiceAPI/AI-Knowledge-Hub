@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.4 Logout
-Current Goal: Revoke the current device Session
-Current Step: Design Logout Service/API contract
+Current Story: Story 2.5 Client Refresh Contract
+Current Goal: Coordinate one client-side Refresh for concurrent 401 responses
+Current Step: Design the client retry state machine
 ```
 
 ## Sprint 目标
@@ -81,7 +81,7 @@ Refresh
 
 Logout
   [完成基础] Repository 同时 DEL Session Hash 和 ZREM 用户索引
-  [当前] Logout Service/API -> 客户端删除本地 Token
+  [完成] Logout Service/API -> 客户端删除本地 Token
 
 多设备 Session
   [完成基础] 独立 Session ID、Hash、Sorted Set、TTL 和失效索引清理
@@ -91,7 +91,7 @@ Sprint 收尾
   [待完成] 集成测试、安全 Review、ADR、注册登录全流程图和 Story Review
 ```
 
-当前学习位置：Story 2.3 Refresh Token Rotation 已完成。现在进入 Story 2.4 Logout，使用 Refresh Token 识别当前设备 Session，并从 Redis 同时删除 Session Hash 和用户 Session 索引。
+当前学习位置：Story 2.4 Logout 已完成。现在进入 Story 2.5 Client Refresh Contract，设计多个业务请求同时收到 Access 401 时，客户端如何只发起一次 Refresh、共享结果并各自重试一次。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -189,7 +189,11 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-29）：完整普通测试 123 项通过、3 项 Integration Test 默认跳过，Ruff、import 顺序和格式检查通过。
 - 已完成（2026-07-29）：真实 Redis Integration Test 3 项通过；Story 2.3 代码、接口、测试、ADR 和文档 Review 通过。
 - Story 2.3 Refresh Token Rotation：已完成（2026-07-29）。
-- 当前 Story：2.4 Logout；当前 Step：设计当前设备 Logout 的 Service/API 契约。
+- 已完成（2026-07-29）：当前设备 Logout 校验 Refresh JWT、Session 用户与当前 Token Hash，成功时删除 Session Hash 和用户索引。
+- 已完成（2026-07-29）：`POST /auth/logout` 成功或 Session 已不存在时返回 204；无效或旧 Token 返回 401，Redis 故障返回 503。
+- 已完成（2026-07-29）：完整普通测试 134 项、真实 Redis Integration Test 4 项通过，Story 2.4 Review 通过。
+- Story 2.4 Logout：已完成（2026-07-29）。
+- 当前 Story：2.5 Client Refresh Contract；当前 Step：设计客户端单航班 Refresh 与一次重试状态机。
 
 ## North Star
 
@@ -377,7 +381,7 @@ POST /auth/refresh
 
 ## Story 2.4: Logout
 
-**状态：进行中（2026-07-29）**
+**状态：已完成（2026-07-29）**
 
 ### 接口
 
@@ -388,16 +392,28 @@ POST /auth/logout
 ### 实现范围
 
 - 当前设备登出。
+- 通过 Refresh Token 的 `sub` 和 `sid` 识别当前设备 Session。
+- 删除前校验 Session 用户和当前 Refresh Token Hash。
 - 删除当前 Refresh Session。
+- Session 已不存在时返回 204，保持重复 Logout 幂等。
+- 无效或旧 Refresh Token 返回 401，Redis 故障返回 503。
 - Access Token 自然过期。
 
 ### 预留范围
 
 - Logout All Devices。
 
+### 完成结果
+
+- `LogoutRequest` 与 `RefreshRequest` 共享 Refresh Token 长度校验，并保持独立 OpenAPI Schema。
+- Logout Service 不查询 MySQL；Session 缺失时幂等成功，用户或 Hash 不匹配时拒绝删除。
+- `POST /auth/logout` 返回 HTTP 204 空响应；无效 Token 返回 401，Redis 故障返回 503。
+- Mock、Service 与 API 测试覆盖成功、重复 Logout、不匹配和故障；真实 Redis 验证 Hash 与 Sorted Set 成员同时删除。
+- 完整普通测试 134 项、真实 Redis Integration Test 4 项通过，Ruff、import 顺序、格式和文档检查通过。
+
 ## Story 2.5: Client Refresh Contract
 
-**状态：未开始**
+**状态：进行中（2026-07-29）**
 
 ### 客户端约定
 
