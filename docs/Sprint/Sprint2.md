@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.5 Client Refresh Contract
-Current Goal: Coordinate one client-side Refresh for concurrent 401 responses
-Current Step: Design the client retry state machine
+Current Story: Story 2.6 Authentication Security
+Current Goal: Review the authentication security boundary and unresolved risks
+Current Step: Audit the current implementation against the Story 2.6 checklist
 ```
 
 ## Sprint 目标
@@ -91,11 +91,11 @@ Sprint 收尾
   [待完成] 集成测试、安全 Review、ADR、注册登录全流程图和 Story Review
 ```
 
-当前学习位置：Story 2.4 Logout 已完成。现在进入 Story 2.5 Client Refresh Contract，设计多个业务请求同时收到 Access 401 时，客户端如何只发起一次 Refresh、共享结果并各自重试一次。
+当前学习位置：Story 2.5 Client Refresh Contract 已完成。客户端实现细节不在当前后端仓库重复学习；现在进入 Story 2.6 Authentication Security，对已经实现的认证体系进行安全 Review。
 
 ### 固定过期模式认证流程图（学习版）
 
-下图展示端到端目标行为，帮助定位后续每个代码步骤。登录 Token Pair、Access 最终过期上限和 Refresh Service/API 已经实现；客户端统一重试仍由 Story 2.5 实现。
+下图展示端到端目标行为，帮助定位后续每个代码步骤。登录 Token Pair、Access 最终过期上限和 Refresh Service/API 已经实现；客户端统一重试契约已由 Story 2.5 固化，具体实现属于客户端工程。
 
 ```mermaid
 flowchart TD
@@ -174,7 +174,7 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-28）：确定 Refresh Token Claims、JSON 传输、固定/Sliding 过期边界、客户端单航班 Refresh 和失败语义。
 - 已完成（2026-07-28）：创建 `refresh-token-design.md` 和 ADR-0017，并在 API 规范记录“尚未启用”的 Sprint 2 目标契约。
 - 已完成（2026-07-28）：Story 2.2 Documentation Review 通过；完整后端测试 108 项、Ruff 和格式检查全部通过。
-- 当前 Story：2.3 Refresh Token Rotation。
+- Story 2.3 Refresh Token Rotation：开始实现（2026-07-29）。
 - 已完成（2026-07-29）：定义 Rotation 输入/结果契约，使用 Redis Lua 原子比较并替换 Refresh Token Hash。
 - 已完成（2026-07-29）：Mock 覆盖成功、Session 不存在、Token Hash 不匹配和未知脚本返回码，共 10 项 Session Repository 测试通过。
 - 已完成（2026-07-29）：使用真实 Redis 验证 Rotation 更新 Hash、TTL、最近使用排序，以及旧 Token 再次使用返回不匹配。
@@ -193,7 +193,12 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-29）：`POST /auth/logout` 成功或 Session 已不存在时返回 204；无效或旧 Token 返回 401，Redis 故障返回 503。
 - 已完成（2026-07-29）：完整普通测试 134 项、真实 Redis Integration Test 4 项通过，Story 2.4 Review 通过。
 - Story 2.4 Logout：已完成（2026-07-29）。
-- 当前 Story：2.5 Client Refresh Contract；当前 Step：设计客户端单航班 Refresh 与一次重试状态机。
+- 已完成（2026-07-29）：固定客户端 Refresh 触发条件、单航班协调、Token Pair 原子替换、一次重试上限和失败终态。
+- 已完成（2026-07-29）：明确当前 iOS JSON Body/Keychain 契约，以及未来浏览器 Cookie、CSRF、CORS 和 Origin 安全基线。
+- 已完成（2026-07-29）：创建 `client-refresh-contract.md` 和 ADR-0019；客户端具体异步任务实现留在对应客户端工程。
+- 已完成（2026-07-29）：完整普通测试 134 项通过、4 项 Integration Test 默认跳过，Ruff、格式和 Documentation Review 通过。
+- Story 2.5 Client Refresh Contract：已完成（2026-07-29）。
+- 当前 Story：2.6 Authentication Security；当前 Step：按安全清单审计现有实现和剩余风险。
 
 ## North Star
 
@@ -413,11 +418,11 @@ POST /auth/logout
 
 ## Story 2.5: Client Refresh Contract
 
-**状态：进行中（2026-07-29）**
+**状态：已完成（2026-07-29）**
 
 ### 客户端约定
 
-客户端负责刷新 Token：
+客户端统一网络层负责刷新 Token，后端普通业务 API 不在内部自动刷新：
 
 ```text
 API
@@ -431,13 +436,25 @@ Retry
 
 ### 要求
 
-- 同一客户端只允许一个 Refresh 请求。
-- 不实现静默刷新。
-- 定义浏览器安全策略。
+- 同一客户端只允许一个共享 Refresh 请求，其他并发失败请求等待同一结果。
+- 成功后原子替换 Token Pair，并让每个原请求最多重试一次。
+- Refresh 自身、403 和已经重试过的请求不得触发 Refresh。
+- Refresh 401/403 清除 Token；503 或网络错误不能误判为登出。
+- 当前 iOS 使用 JSON Body 和 Keychain，不在后端仓库实现客户端异步任务。
+- 浏览器 Cookie、CSRF、CORS 和 Origin 安全基线已经定义，但当前接口尚未启用 Cookie 模式。
+
+### 完成结果
+
+- 创建 `docs/architecture/client-refresh-contract.md`，固定客户端状态机和失败终态。
+- 创建 ADR-0019，记录客户端/后端职责边界和未直接启用浏览器 Cookie 的原因。
+- API 规范明确 Refresh 触发范围、一次重试上限及 401/403/503 的不同处理。
+- 本 Story 为契约与架构文档交付，不修改后端或创建临时客户端代码。
+- 完整普通测试 134 项通过、4 项 Integration Test 默认跳过，Ruff、格式和文档检查通过。
+- Documentation Review：96/100，无阻断问题；客户端状态机与未来浏览器 Cookie 仍需在对应客户端/浏览器功能启用时补充自动化测试。
 
 ## Story 2.6: Authentication Security
 
-**状态：未开始**
+**状态：进行中（2026-07-29）**
 
 ### 学习内容
 

@@ -4,7 +4,7 @@
 
 本文定义 AI-Knowledge-Hub 的 Access Token、Refresh Token 与 Redis Session 如何协作，以及客户端怎样在 Access Token 过期后恢复请求。
 
-当前代码已经完成登录 Token Pair、Refresh JWT、Session 过期计算、Redis Lua 原子 Rotation、Replay 撤销和 Refresh Service/API。本文描述的是当前已启用的 `/auth/refresh` 契约；客户端自动刷新和并发请求协调仍由 Story 2.5 实现。
+当前代码已经完成登录 Token Pair、Refresh JWT、Session 过期计算、Redis Lua 原子 Rotation、Replay 撤销和 Refresh Service/API。本文描述的是当前已启用的 `/auth/refresh` 契约；客户端恢复请求的完整协议见 `client-refresh-contract.md` 和 ADR-0019。
 
 ## 2. 整体位置
 
@@ -109,7 +109,7 @@ Content-Type: application/json
 }
 ```
 
-iOS 将 Refresh Token 保存到 Keychain。浏览器的 HttpOnly Cookie、`Secure`、`SameSite`、CSRF 和 CORS 策略在 Story 2.5 单独设计，当前接口不能直接宣称已经具备 Cookie 安全边界。
+iOS 将 Refresh Token 保存到 Keychain。ADR-0019 已定义未来浏览器的 HttpOnly Cookie、`Secure`、`SameSite`、CSRF 和 CORS 基线；当前接口仍未启用 Cookie 模式，不能宣称已经具备浏览器 Cookie 安全边界。
 
 ### 6.2 成功响应
 
@@ -187,6 +187,6 @@ Rotation 保持 `sid` 不变，生成新的 `jti`、Refresh JWT 和 Token Hash�
 
 - ADR-0018：已确定使用 Lua 原子 Rotation，并在 Replay 时撤销当前设备 Session。
 - Story 2.4：上述 Logout Service/API 与客户端删除 Token 契约已实现。
-- Story 2.5：客户端单航班实现和浏览器 Cookie 安全策略。
+- Story 2.5：客户端单航班契约和浏览器 Cookie 安全基线已由 `client-refresh-contract.md` 与 ADR-0019 固化；具体实现属于未来客户端或浏览器接入工作。
 - Story 2.6：Secret Rotation、Sliding Session 和完整安全 Review。
 - Sprint 收尾：汇总注册、登录、Refresh 和 Logout 的端到端时序图。

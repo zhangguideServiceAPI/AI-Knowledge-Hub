@@ -24,6 +24,7 @@
 - [认证体系演进](architecture/authentication-evolution.md)
 - [Session Architecture](architecture/session-architecture.md)
 - [Refresh Token Design](architecture/refresh-token-design.md)
+- [Client Refresh Contract](architecture/client-refresh-contract.md)
 - [架构决策记录](architecture/adr/)
 
 ## Sprint 记录
