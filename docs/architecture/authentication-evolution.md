@@ -112,7 +112,7 @@ Redis Session 还为以下能力提供基础：
 - Session TTL。
 - Replay Attack 检测。
 
-Redis Key、Value、Token Hash、用户 Session 索引和原子轮换方案在 Story 2.2 中确定，本文不提前固定实现。
+Redis Key、Token Hash、用户 Session 索引和生命周期已经在 `session-architecture.md` 与 ADR-0016 中确定；原子轮换方案继续由 Refresh Token 设计和 Story 2.3 确定。
 
 ### 3.5 OAuth2 / OIDC
 
