@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from app.core.security import BCRYPT_PASSWORD_MAX_BYTES
 from app.schemas.auth import (
     LoginRequest,
+    LogoutRequest,
     RefreshRequest,
     RegisterRequest,
     TokenPairResponse,
@@ -95,8 +96,11 @@ def test_token_response_uses_bearer_token_type() -> None:
     assert response.expires_in == 1800
 
 
-def test_refresh_request_accepts_token() -> None:
-    request = RefreshRequest(refresh_token="signed-refresh-token")
+@pytest.mark.parametrize("request_type", [RefreshRequest, LogoutRequest])
+def test_refresh_token_request_accepts_token(
+    request_type: type[RefreshRequest] | type[LogoutRequest],
+) -> None:
+    request = request_type(refresh_token="signed-refresh-token")
 
     assert request.refresh_token == "signed-refresh-token"
 
@@ -105,11 +109,13 @@ def test_refresh_request_accepts_token() -> None:
     "refresh_token",
     ["", "a" * 4097],
 )
-def test_refresh_request_rejects_invalid_length(
+@pytest.mark.parametrize("request_type", [RefreshRequest, LogoutRequest])
+def test_refresh_token_request_rejects_invalid_length(
+    request_type: type[RefreshRequest] | type[LogoutRequest],
     refresh_token: str,
 ) -> None:
     with pytest.raises(ValidationError) as error:
-        RefreshRequest(refresh_token=refresh_token)
+        request_type(refresh_token=refresh_token)
 
     assert error.value.errors()[0]["loc"] == ("refresh_token",)
 

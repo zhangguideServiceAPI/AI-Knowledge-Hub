@@ -30,7 +30,12 @@ from app.db.repositories.session_repository import (
 )
 from app.db.repositories.user_repository import UserRepository
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest
+from app.schemas.auth import (
+    LoginRequest,
+    LogoutRequest,
+    RefreshRequest,
+    RegisterRequest,
+)
 from app.services.auth_service import AuthService
 
 
@@ -503,3 +508,100 @@ def test_refresh_rejects_missing_session_before_rotation(
     session_repository.get.assert_called_once_with(session_id)
     session_repository.create.assert_not_called()
     session_repository.rotate.assert_not_called()
+
+
+def test_logout_deletes_current_session(
+    session: Session,
+    session_repository: Mock,
+) -> None:
+    service = AuthService(session)
+    user_id = 42
+    session_id = "current-session-id"
+    refresh_token = create_refresh_token(
+        user_id=user_id,
+        session_id=session_id,
+        expires_at=int(time()) + 3_600,
+    )
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user_id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        created_at=int(time()) - 600,
+        last_used_at=int(time()) - 60,
+        expires_at=int(time()) + 3_600,
+        absolute_expires_at=int(time()) + 3_600,
+    )
+
+    result = service.logout(
+        LogoutRequest(refresh_token=refresh_token),
+        session_repository,
+    )
+
+    assert result is None
+    session_repository.get.assert_called_once_with(session_id)
+    session_repository.delete.assert_called_once_with(
+        user_id=user_id,
+        session_id=session_id,
+    )
+    session_repository.create.assert_not_called()
+    session_repository.rotate.assert_not_called()
+
+
+def test_logout_succeeds_when_session_is_already_missing(
+    session: Session,
+    session_repository: Mock,
+) -> None:
+    service = AuthService(session)
+    session_id = "missing-session-id"
+    refresh_token = create_refresh_token(
+        user_id=42,
+        session_id=session_id,
+        expires_at=int(time()) + 3_600,
+    )
+    session_repository.get.return_value = None
+
+    result = service.logout(
+        LogoutRequest(refresh_token=refresh_token),
+        session_repository,
+    )
+
+    assert result is None
+    session_repository.get.assert_called_once_with(session_id)
+    session_repository.delete.assert_not_called()
+
+
+@pytest.mark.parametrize("mismatch", ["user_id", "refresh_token_hash"])
+def test_logout_rejects_session_mismatch(
+    mismatch: str,
+    session: Session,
+    session_repository: Mock,
+) -> None:
+    service = AuthService(session)
+    user_id = 42
+    session_id = "current-session-id"
+    refresh_token = create_refresh_token(
+        user_id=user_id,
+        session_id=session_id,
+        expires_at=int(time()) + 3_600,
+    )
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=99 if mismatch == "user_id" else user_id,
+        refresh_token_hash=(
+            "different-token-hash"
+            if mismatch == "refresh_token_hash"
+            else hash_refresh_token(refresh_token)
+        ),
+        created_at=int(time()) - 600,
+        last_used_at=int(time()) - 60,
+        expires_at=int(time()) + 3_600,
+        absolute_expires_at=int(time()) + 3_600,
+    )
+
+    with pytest.raises(InvalidRefreshTokenError):
+        service.logout(
+            LogoutRequest(refresh_token=refresh_token),
+            session_repository,
+        )
+
+    session_repository.delete.assert_not_called()
