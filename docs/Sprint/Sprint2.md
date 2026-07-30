@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.7 Testing
-Current Goal: Audit the authentication test matrix and missing end-to-end coverage
-Current Step: Classify unit, API, integration and security test responsibilities
+Current Story: Story 2.8 Observability
+Current Goal: Define authentication event logging without exposing credentials
+Current Step: Classify INFO, WARNING and ERROR authentication events
 ```
 
 ## Sprint 目标
@@ -93,10 +93,11 @@ Logout
   [待设计] 当前设备、IP、User Agent、单设备/多设备策略接口
 
 Sprint 收尾
-  [待完成] 集成测试、安全 Review、ADR、注册登录全流程图和 Story Review
+  [完成] 认证测试矩阵与真实 Redis 纵向集成测试
+  [待完成] 可观测性、用户 Session 设计、注册登录全流程图和 Sprint Review
 ```
 
-当前学习位置：Story 2.6 Authentication Security 已完成。现在进入 Story 2.7 Testing，按单元、API、真实 Redis 和端到端层次审计认证测试，不重复实现已经完成的安全功能。
+当前学习位置：Story 2.7 Testing 已完成。现在进入 Story 2.8 Observability，为已经验证的 Login、Refresh、Replay 和 Logout 流程增加安全事件日志与敏感数据边界。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -212,7 +213,16 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已决定（2026-07-30）：当前仍按规范化邮箱限流；客户端 IP 维度必须先定义可信反向代理边界，不能直接信任可伪造的 `X-Forwarded-For`。
 - 已完成（2026-07-30）：完整普通测试 146 项、真实 Redis Integration Test 6 项通过，Ruff、格式和 Documentation Review 无阻断问题。
 - Story 2.6 Authentication Security：已完成（2026-07-30）。
-- 当前 Story：2.7 Testing；当前 Step：审计认证测试矩阵和端到端覆盖缺口。
+- Story 2.7 Testing 开始；第一步审计认证测试矩阵和端到端覆盖缺口。
+- 已完成（2026-07-30）：盘点 152 项测试，其中默认测试 146 项、真实 Redis Integration Test 6 项。
+- 已识别（2026-07-30）：API 测试使用 SQLite 和 Redis Mock，真实 Redis 测试只覆盖 Repository；当前缺少 HTTP、Router、Service 与真实 Redis 串联的纵向集成测试。
+- 已决定（2026-07-30）：Story 2.7 只补完整 Login/Refresh/Logout 生命周期和 Replay 撤销两条纵向测试，不重复已有单元与 API 分支测试。
+- 已完成（2026-07-30）：新增真实 Redis 认证 Fixture，仅覆盖数据库依赖为 SQLite，RateLimiter 和 SessionRepository 使用真实 Redis 实现。
+- 已完成（2026-07-30）：纵向验证 Register、Login、Current User、Refresh、Logout 和 Logout 后 Refresh 返回 401；同时固定 Logout 后未过期 Access Token 仍可使用的当前契约。
+- 已完成（2026-07-30）：纵向验证 R1 Rotation 得到 R2 后重用 R1 会撤销当前 Session，R2 随后也无法继续 Refresh。
+- 已完成（2026-07-30）：两条纵向测试连续运行 10 轮通过；完整普通测试 146 项、真实 Redis Integration Test 8 项通过，Ruff 和格式检查通过。
+- Story 2.7 Testing：已完成（2026-07-30）。
+- 当前 Story：2.8 Observability；当前 Step：设计认证事件级别、字段和敏感数据边界。
 
 ## North Star
 
@@ -496,7 +506,7 @@ Retry
 
 ## Story 2.7: Testing
 
-**状态：未开始**
+**状态：已完成（2026-07-30）**
 
 ### 测试体系
 
@@ -505,6 +515,32 @@ Retry
 - 使用 Fake 或 Stub 完成 Redis 边界的单元测试。
 - 使用真实 Redis 完成 TTL、原子轮换和重放场景的集成测试。
 - API Test。
+
+### 当前测试分层
+
+```text
+Schema / Config / Security Unit Test
+  -> Repository / Service Unit Test with Mock
+  -> FastAPI TestClient + SQLite + Redis Mock
+  -> Real Redis Repository Integration Test
+  -> HTTP + Service + Real Redis Vertical Integration Test [待补]
+```
+
+现有测试已经覆盖各层独立行为，但还没有一条测试通过 HTTP 请求串联 Router、AuthService、真实 SessionRepository 和真实 Redis。Story 2.7 使用 SQLite 隔离用户数据，Redis 使用真实服务，从而聚焦当前 Sprint 的 Session 与认证边界；真实 MySQL 方言和 Migration 验证不在这两条 Redis 纵向测试中重复承担。
+
+### 纵向集成测试
+
+1. Register -> Login -> Current User -> Refresh -> Logout -> Refresh 失败，并确认 Logout 后 Access Token 仍自然有效到自身 `exp`。
+2. Login -> Refresh R1 得到 R2 -> 重用 R1 触发 Replay -> R2 也无法继续 Refresh。
+
+### 完成结果
+
+- 默认测试共 146 项，覆盖 Schema、Config、Security、Repository、Service 和 API 契约。
+- 真实 Redis Integration Test 共 8 项，覆盖限流并发、Rotation、Replay、原子 Logout 和两条 HTTP 纵向认证流程。
+- 完整生命周期测试证明真实 Redis Session 会被 Login 创建、Refresh 更新、Logout 删除。
+- Replay 纵向测试证明旧 Refresh Token 重用会撤销当前 Session，并使已经签发的当前 Refresh Token 同样失效。
+- 真实 MySQL 方言和 Alembic Migration 不由本 Story 的 Redis 纵向测试重复验证，保留在数据库与部署测试边界。
+- Story Review：96/100，无阻断问题。
 
 ### 最低覆盖范围
 
