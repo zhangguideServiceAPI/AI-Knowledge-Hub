@@ -12,6 +12,7 @@ from app.core.exceptions import (
     InvalidRefreshTokenError,
     LoginRateLimitExceededError,
 )
+from app.core.logging import logger
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     calculate_initial_session_expiration,
@@ -75,6 +76,10 @@ class AuthService:
         except IntegrityError as error:
             raise EmailAlreadyRegisteredError() from error
 
+        logger.info(
+            "auth.register.success user_id=%s",
+            response.id,
+        )
         return response
 
     def login(
@@ -86,6 +91,7 @@ class AuthService:
         email = str(request.email).strip().lower()
 
         if not rate_limiter.reserve_attempt(email):
+            logger.warning("auth.login.rate_limited reason=attempt_limit_exceeded")
             raise LoginRateLimitExceededError()
 
         user_model = self._user_repository.get_by_email(email)
@@ -130,6 +136,11 @@ class AuthService:
             ttl_seconds=ttl_seconds,
         )
 
+        logger.info(
+            "auth.login.success user_id=%s",
+            user_model.id,
+        )
+
         return TokenPairResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -160,12 +171,27 @@ class AuthService:
         claims = decode_refresh_token(request.refresh_token)
         session_record = session_repository.get(claims.session_id)
 
-        if session_record is None or session_record.user_id != claims.user_id:
+        if session_record is None:
+            logger.warning(
+                "auth.refresh.rejected user_id=%s reason=session_not_found",
+                claims.user_id,
+            )
+            raise InvalidRefreshTokenError()
+
+        if session_record.user_id != claims.user_id:
+            logger.warning(
+                "auth.refresh.rejected user_id=%s reason=user_mismatch",
+                claims.user_id,
+            )
             raise InvalidRefreshTokenError()
 
         user_model = self._user_repository.get_by_id(claims.user_id)
 
         if user_model is None:
+            logger.warning(
+                "auth.refresh.rejected user_id=%s reason=user_not_found",
+                claims.user_id,
+            )
             raise InvalidRefreshTokenError()
 
         if user_model.status != UserStatus.ACTIVE:
@@ -179,6 +205,10 @@ class AuthService:
         )
         ttl_seconds = rotated_expires_at - rotated_at
         if ttl_seconds <= 0:
+            logger.warning(
+                "auth.refresh.rejected user_id=%s reason=session_expired",
+                user_model.id,
+            )
             raise InvalidRefreshTokenError()
 
         new_refresh_token = create_refresh_token(
@@ -204,7 +234,22 @@ class AuthService:
         )
 
         if result != SessionRotationResult.SUCCESS:
+            if result is SessionRotationResult.TOKEN_MISMATCH:
+                logger.warning(
+                    "auth.refresh.replay_detected user_id=%s reason=token_mismatch",
+                    user_model.id,
+                )
+            else:
+                logger.warning(
+                    "auth.refresh.rejected user_id=%s reason=session_not_found",
+                    user_model.id,
+                )
             raise InvalidRefreshTokenError()
+
+        logger.info(
+            "auth.refresh.success user_id=%s",
+            user_model.id,
+        )
 
         return TokenPairResponse(
             access_token=new_access_token,
@@ -230,6 +275,14 @@ class AuthService:
                 expected_refresh_token_hash=hash_refresh_token(request.refresh_token),
             )
         )
-
         if result is SessionDeletionResult.SESSION_MISMATCH:
             raise InvalidRefreshTokenError()
+
+        logout_result = (
+            "deleted" if result is SessionDeletionResult.SUCCESS else "already_missing"
+        )
+        logger.info(
+            "auth.logout.success user_id=%s result=%s",
+            claims.user_id,
+            logout_result,
+        )

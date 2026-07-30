@@ -10,6 +10,7 @@ from app.core.exceptions import (
     InvalidRefreshTokenError,
     LoginRateLimitExceededError,
 )
+from app.core.logging import logger
 from app.schemas.error import ErrorResponse
 
 
@@ -68,9 +69,15 @@ async def login_rate_limit_exceeded_handler(
 
 
 async def redis_unavailable_handler(
-    _request: Request,
-    _error: RedisError,
+    request: Request,
+    error: RedisError,
 ) -> JSONResponse:
+    logger.error(
+        "auth.redis.unavailable method=%s path=%s error_type=%s",
+        request.method,
+        request.url.path,
+        type(error).__name__,
+    )
     response = ErrorResponse(
         detail="Authentication service is temporarily unavailable.",
     )

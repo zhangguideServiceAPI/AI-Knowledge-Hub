@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.8 Observability
+Current Story: Story 2.9 User Session Design
 Current Goal:
-  - Define Authentication Security Event Logging
-  - Avoid Credential Leakage and Log Flooding
+  - Design Multi-device Session Visibility
+  - Define Current-device and Revocation Contracts
 
 In Progress:
   - Session and Identity Management
-  - Authentication Observability Design
+  - User Session Management Design
 
 Not Started:
   - AI Chat
