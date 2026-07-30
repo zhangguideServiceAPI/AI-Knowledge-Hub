@@ -34,7 +34,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - 当前设备原子 Logout、Refresh Replay 撤销和客户端单航班契约
 - JWT `kid`、Active Key 与 Key Ring 密钥轮换
 
-Story 2.6 Authentication Security 已完成。登录、Refresh Rotation、Replay 撤销、原子 Logout、固定/Sliding 过期和 JWT 密钥轮换已通过单元、API 与真实 Redis 验证，下一步进入 Story 2.7 Testing，系统化审计认证测试矩阵。
+Story 2.7 Testing 已完成。登录、Refresh Rotation、Replay 撤销、原子 Logout、固定/Sliding 过期和 JWT 密钥轮换已通过单元、API、真实 Redis Repository 与 HTTP 纵向集成测试，下一步进入 Story 2.8 Observability，补充认证安全事件日志。
 
 ## 技术栈
 
