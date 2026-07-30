@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.6 Authentication Security
-Current Goal: Review the authentication security boundary and unresolved risks
-Current Step: Audit the current implementation against the Story 2.6 checklist
+Current Story: Story 2.7 Testing
+Current Goal: Audit the authentication test matrix and missing end-to-end coverage
+Current Step: Classify unit, API, integration and security test responsibilities
 ```
 
 ## Sprint 目标
@@ -65,7 +65,7 @@ Security 基础概念在架构设计前预习，是为了让 Replay Attack、Tok
   [完成] 校验输入 -> 密码 Hash -> MySQL 创建 User -> 返回 User
 
 登录
-  [完成] 登录限流 -> MySQL 查询 User -> bcrypt 验证
+  [完成] Redis 原子占用尝试额度 -> MySQL 查询 User -> bcrypt 验证
   [完成] Access Token 签发
   [完成] Session ID、Refresh JWT、Token Hash 和过期策略基础
   [完成] 创建 Redis Session -> 同时返回 Access/Refresh Token
@@ -80,8 +80,13 @@ Refresh
   [完成] Refresh Service/API -> 返回新 Token
 
 Logout
-  [完成基础] Repository 同时 DEL Session Hash 和 ZREM 用户索引
+  [完成] Lua 原子校验用户与当前 Token Hash -> DEL Session Hash + ZREM 用户索引
   [完成] Logout Service/API -> 客户端删除本地 Token
+
+认证安全
+  [完成] 固定/Sliding 过期边界与绝对上限
+  [完成] JWT kid、Active Key、Key Ring 和正常/紧急 Secret Rotation
+  [完成] 真实 Redis 并发准入与旧 Token Logout 竞态测试
 
 多设备 Session
   [完成基础] 独立 Session ID、Hash、Sorted Set、TTL 和失效索引清理
@@ -91,7 +96,7 @@ Sprint 收尾
   [待完成] 集成测试、安全 Review、ADR、注册登录全流程图和 Story Review
 ```
 
-当前学习位置：Story 2.5 Client Refresh Contract 已完成。客户端实现细节不在当前后端仓库重复学习；现在进入 Story 2.6 Authentication Security，对已经实现的认证体系进行安全 Review。
+当前学习位置：Story 2.6 Authentication Security 已完成。现在进入 Story 2.7 Testing，按单元、API、真实 Redis 和端到端层次审计认证测试，不重复实现已经完成的安全功能。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -198,7 +203,16 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-29）：创建 `client-refresh-contract.md` 和 ADR-0019；客户端具体异步任务实现留在对应客户端工程。
 - 已完成（2026-07-29）：完整普通测试 134 项通过、4 项 Integration Test 默认跳过，Ruff、格式和 Documentation Review 通过。
 - Story 2.5 Client Refresh Contract：已完成（2026-07-29）。
-- 当前 Story：2.6 Authentication Security；当前 Step：按安全清单审计现有实现和剩余风险。
+- 已完成（2026-07-30）：Logout 改为 Redis Lua 原子校验当前用户和 Refresh Token Hash 后删除，旧 Token 不再可能因检查与删除之间的竞态撤销新 Session 状态。
+- 已完成（2026-07-30）：Access 与 Refresh JWT 增加 `kid`，使用 Active Key 签发并按 Key Ring 验证；正常轮换兼容旧 Token，紧急移除密钥可强制重新登录。
+- 已完成（2026-07-30）：固定过期继续作为默认策略；Sliding Rotation 可以延长当前期限，但 Refresh Token `exp`、Redis TTL 和响应秒数保持一致，并受 `absolute_expires_at` 限制。
+- 已完成（2026-07-30）：登录限流改为密码验证前原子占用尝试额度，关闭 `GET` 检查与失败计数之间的并发窗口。
+- 已完成（2026-07-30）：真实 Redis 验证 20 个并发登录请求在上限为 5 时只有 5 个准入，并连续运行 20 轮通过。
+- 已完成（2026-07-30）：创建 ADR-0020，并同步 ADR-0012、ADR-0015、ADR-0017、API、Session、Refresh、README 和项目状态文档。
+- 已决定（2026-07-30）：当前仍按规范化邮箱限流；客户端 IP 维度必须先定义可信反向代理边界，不能直接信任可伪造的 `X-Forwarded-For`。
+- 已完成（2026-07-30）：完整普通测试 146 项、真实 Redis Integration Test 6 项通过，Ruff、格式和 Documentation Review 无阻断问题。
+- Story 2.6 Authentication Security：已完成（2026-07-30）。
+- 当前 Story：2.7 Testing；当前 Step：审计认证测试矩阵和端到端覆盖缺口。
 
 ## North Star
 
@@ -454,7 +468,7 @@ Retry
 
 ## Story 2.6: Authentication Security
 
-**状态：进行中（2026-07-29）**
+**状态：已完成（2026-07-30）**
 
 ### 学习内容
 
@@ -468,6 +482,17 @@ Retry
 ### 需要理解
 
 - 为什么 Redis 不保存原始 Refresh Token。
+
+### 完成结果
+
+- Replay 继续按 ADR-0018 原子撤销当前设备 Session，其他设备不受影响。
+- Logout 使用 Lua 原子比较当前 Refresh Token Hash，消除检查后删除的竞态窗口。
+- 固定过期保持默认；Sliding 模式受 30 天绝对上限约束，不形成无限登录。
+- Access 与 Refresh Token 使用 `kid`、Active Key 和 Key Ring 支持 Secret Rotation。
+- 登录尝试在密码验证前使用事务 Pipeline 原子准入，并通过真实 Redis 并发测试。
+- 邮箱/IP 双维度限流保留为部署安全技术债，启用前必须先定义可信代理链。
+- 创建 ADR-0020，并完成代码、API、架构和 Sprint 文档同步。
+- Story Review：97/100，无阻断问题。
 
 ## Story 2.7: Testing
 

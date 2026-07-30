@@ -127,7 +127,7 @@ Content-Type: application/json
 
 登录成功会为当前设备创建独立的 Redis Session。`expires_in` 和 `refresh_expires_in` 的单位均为秒；默认固定过期模式下，Access Token 最多有效 30 分钟，Refresh Token 和 Redis Session 最多有效 7 天。
 
-Access Token Payload 包含字符串形式的用户 ID、Token 类型、签发时间和过期时间。
+Access Token Payload 包含字符串形式的用户 ID、Token 类型、签发时间和过期时间。Access 与 Refresh JWT Header 都包含 `kid`，服务端使用它从 Key Ring 选择验证密钥；客户端不需要解析或管理 `kid`。
 
 邮箱不存在或密码错误统一返回 HTTP 401，不向客户端暴露邮箱是否已注册：
 
@@ -149,7 +149,7 @@ WWW-Authenticate: Bearer
 }
 ```
 
-同一登录标识在固定窗口内失败 5 次后，后续请求在密码验证前返回 HTTP 429。第 5 次错误本身仍返回 HTTP 401：
+每次登录在密码验证前通过 Redis 事务原子占用一次尝试额度。同一登录标识在固定窗口内最多允许 5 次进入密码验证；第 5 次错误本身仍返回 HTTP 401，第 6 次及后续请求返回 HTTP 429。登录成功会清除计数：
 
 ```json
 {
@@ -223,7 +223,7 @@ Content-Type: application/json
 }
 ```
 
-当前 Refresh Token 与 Redis Session 匹配时，服务端同时删除 Session Hash 和用户 Session 索引成员，返回 HTTP 204 且没有响应 Body。客户端随后删除本地 Access Token 与 Refresh Token。
+当前 Refresh Token 与 Redis Session 匹配时，服务端使用 Redis Lua 原子比较用户与 Token Hash，并同时删除 Session Hash 和用户 Session 索引成员，返回 HTTP 204 且没有响应 Body。客户端随后删除本地 Access Token 与 Refresh Token。
 
 Session 已经不存在时仍返回 HTTP 204，使重复 Logout 保持幂等。Refresh JWT 无效、已过期、用户与 Session 不一致或 Token Hash 不匹配时返回 HTTP 401；Hash 不匹配时不会删除当前 Session，避免旧 Token 使新 Session 状态被强制登出。Redis 无法完成必要校验或删除时返回 HTTP 503。
 

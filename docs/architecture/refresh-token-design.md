@@ -67,6 +67,22 @@ Access Token 默认有效期为 30 分钟。目标实现需要把它的 `exp` �
 
 Redis 不保存原始 Refresh Token，只保存完整 Refresh JWT 的 SHA-256 摘要。`jti` 让每次签发的 JWT 都具有独立身份，Hash 则用于判断客户端提交的 Token 是否仍是 Redis 中允许的当前版本。
 
+### 4.3 JWT Header 与 Secret Rotation
+
+Access Token 和 Refresh Token 的 Header 都包含公开的 `kid`：
+
+```json
+{
+  "alg": "HS256",
+  "kid": "v2",
+  "typ": "JWT"
+}
+```
+
+`JWT_ACTIVE_KEY_ID` 指定新 Token 使用的签名密钥，`JWT_SIGNING_KEYS` 保存当前允许验证的 Key Ring。验证时根据 `kid` 选择 Secret；缺少或未知 `kid` 时拒绝 Token，算法始终固定为配置允许的 `HS256`。
+
+正常轮换先同时保留旧、新密钥，再把 Active Key 切换到新密钥。旧 Refresh Token 可以通过旧密钥验证，但成功 Rotation 后返回的两个新 Token 都使用新密钥。等待最后一个旧密钥 Token 的最长生命周期和运维缓冲后，才能移除旧密钥。密钥泄露时则立即移除并强制对应客户端重新登录。完整流程见 ADR-0020。
+
 ## 5. 过期规则
 
 ### 5.1 固定过期模式
@@ -90,7 +106,7 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 expires_at = min(本次签发时间 + SESSION_TTL_DAYS, absolute_expires_at)
 ```
 
-新 Refresh Token 的 `exp` 和 Redis TTL 必须使用同一个新 `expires_at`。`absolute_expires_at` 是不可突破的最终上限，避免活跃 Session 永不结束。默认仍使用固定过期模式，Sliding 模式在 Authentication Security Review 后再决定是否启用。
+新 Refresh Token 的 `exp` 和 Redis TTL 必须使用同一个新 `expires_at`。`absolute_expires_at` 是不可突破的最终上限，避免活跃 Session 永不结束。Authentication Security Review 已确认该模式的边界，但默认仍使用固定过期模式；只有明确需要更长活跃登录时才通过配置启用 Sliding。
 
 ## 6. API 与客户端传输
 
@@ -174,7 +190,7 @@ Rotation 保持 `sid` 不变，生成新的 `jti`、Refresh JWT 和 Token Hash�
 
 ## 10. Logout 契约
 
-当前设备 Logout 通过 JSON Body 提交 Refresh Token。后端验证 JWT 后取得 `sub` 和 `sid`，读取 Redis Session，并确认 Session 用户和当前 `refresh_token_hash` 都与提交 Token 一致，然后使用 Repository 事务同时删除 Session Hash 和用户 Session 索引。
+当前设备 Logout 通过 JSON Body 提交 Refresh Token。后端验证 JWT 后取得 `sub` 和 `sid`，再通过 Redis Lua 在一个原子操作中确认 Session 用户和当前 `refresh_token_hash` 都与提交 Token 一致，并删除 Session Hash 和用户 Session 索引。
 
 - 删除成功返回 HTTP 204，客户端删除本地 Token Pair。
 - Session 已不存在时同样返回 HTTP 204，保证重复 Logout 幂等。
@@ -188,5 +204,5 @@ Rotation 保持 `sid` 不变，生成新的 `jti`、Refresh JWT 和 Token Hash�
 - ADR-0018：已确定使用 Lua 原子 Rotation，并在 Replay 时撤销当前设备 Session。
 - Story 2.4：上述 Logout Service/API 与客户端删除 Token 契约已实现。
 - Story 2.5：客户端单航班契约和浏览器 Cookie 安全基线已由 `client-refresh-contract.md` 与 ADR-0019 固化；具体实现属于未来客户端或浏览器接入工作。
-- Story 2.6：Secret Rotation、Sliding Session 和完整安全 Review。
+- Story 2.6：已完成原子 Logout、Secret Rotation、固定/Sliding 过期和登录并发限流安全 Review。
 - Sprint 收尾：汇总注册、登录、Refresh 和 Logout 的端到端时序图。

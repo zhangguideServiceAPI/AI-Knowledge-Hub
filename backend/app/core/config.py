@@ -1,7 +1,21 @@
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+JwtKeyId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    ),
+]
+
+JwtSigningSecret = Annotated[
+    SecretStr,
+    Field(min_length=32),
+]
 
 
 class Settings(BaseSettings):
@@ -26,7 +40,10 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS: PositiveInt = 5
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: PositiveInt = 60
 
-    JWT_SECRET_KEY: SecretStr = Field(min_length=32)
+    JWT_ACTIVE_KEY_ID: JwtKeyId
+    JWT_SIGNING_KEYS: dict[JwtKeyId, JwtSigningSecret] = Field(
+        min_length=1,
+    )
     JWT_ALGORITHM: Literal["HS256"] = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: PositiveInt = 30
 
@@ -46,6 +63,13 @@ class Settings(BaseSettings):
                 "SESSION_ABSOLUTE_MAX_DAYS must be greater than or equal "
                 "to SESSION_TTL_DAYS in sliding mode."
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_jwt_key_ring(self) -> Self:
+        if self.JWT_ACTIVE_KEY_ID not in self.JWT_SIGNING_KEYS:
+            raise ValueError("JWT_ACTIVE_KEY_ID must exist in JWT_SIGNING_KEYS.")
 
         return self
 

@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.6 Authentication Security
+Current Story: Story 2.7 Testing
 Current Goal:
-  - Review Replay, Expiration, Token Storage and Secret Rotation Boundaries
-  - Identify Blocking Security Gaps Before Sprint Testing
+  - Audit Unit, API, Integration and Security Test Responsibilities
+  - Identify Missing End-to-End Authentication Coverage
 
 In Progress:
   - Session and Identity Management
-  - Authentication Security Review
+  - Authentication Test Matrix Review
 
 Not Started:
   - AI Chat

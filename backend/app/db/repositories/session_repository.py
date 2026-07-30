@@ -38,6 +38,19 @@ class SessionRotationResult(Enum):
     TOKEN_MISMATCH = "token_mismatch"
 
 
+@dataclass(frozen=True)
+class SessionDeletion:
+    session_id: str
+    user_id: int
+    expected_refresh_token_hash: str
+
+
+class SessionDeletionResult(Enum):
+    SUCCESS = "success"
+    SESSION_NOT_FOUND = "session_not_found"
+    SESSION_MISMATCH = "session_mismatch"
+
+
 # Lua 脚本在 Redis 内一次完成旧 Hash 比较和新状态写入。
 _ROTATE_SESSION_SCRIPT = """
 local current_hash = redis.call("HGET", KEYS[1], "refresh_token_hash")
@@ -73,6 +86,25 @@ return 1
 # 7. 用剩余秒数重新对齐 Redis TTL
 # 8. 更新这个 Session 在用户 Sorted Set 中的最近使用时间
 # 9. 返回 1
+
+# Logout 在一次 Redis 操作中校验当前用户和 Refresh Hash 后删除 Session。
+_DELETE_SESSION_IF_MATCHES_SCRIPT = """
+local current_user_id = redis.call("HGET", KEYS[1], "user_id")
+local current_hash = redis.call("HGET", KEYS[1], "refresh_token_hash")
+
+if not current_user_id or not current_hash then
+    return 0
+end
+
+if current_user_id ~= ARGV[1] or current_hash ~= ARGV[2] then
+    return -1
+end
+
+redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[2], ARGV[3])
+
+return 1
+"""
 
 
 def _session_record_from_hash(
@@ -164,6 +196,34 @@ class SessionRepository:
             return SessionRotationResult.TOKEN_MISMATCH
 
         raise ValueError(f"Unexpected session rotation result: {result}")
+
+    def delete_if_matches(
+        self,
+        deletion: SessionDeletion,
+    ) -> SessionDeletionResult:
+        key = f"auth:session:{deletion.session_id}"
+        index_key = f"auth:user:{deletion.user_id}:sessions"
+
+        result = self._client.eval(
+            _DELETE_SESSION_IF_MATCHES_SCRIPT,
+            2,
+            key,
+            index_key,
+            str(deletion.user_id),
+            deletion.expected_refresh_token_hash,
+            deletion.session_id,
+        )
+
+        if result == 1:
+            return SessionDeletionResult.SUCCESS
+
+        if result == 0:
+            return SessionDeletionResult.SESSION_NOT_FOUND
+
+        if result == -1:
+            return SessionDeletionResult.SESSION_MISMATCH
+
+        raise ValueError(f"Unexpected session deletion result: {result}")
 
     def delete(self, user_id: int, session_id: str) -> None:
         key = f"auth:session:{session_id}"
