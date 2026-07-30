@@ -1,3 +1,4 @@
+import logging
 from time import time
 from unittest.mock import Mock
 
@@ -42,7 +43,10 @@ from app.schemas.auth import (
 from app.services.auth_service import AuthService
 
 
-def test_register_creates_committed_user(session: Session) -> None:
+def test_register_creates_committed_user(
+    session: Session,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     service = AuthService(session)
     request = RegisterRequest(
         email="USER@example.com",
@@ -50,7 +54,8 @@ def test_register_creates_committed_user(session: Session) -> None:
         nickname="  Nickname  ",
     )
 
-    response = service.register(request)
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        response = service.register(request)
 
     assert str(response.email) == "user@example.com"
     assert response.nickname == "Nickname"
@@ -64,6 +69,16 @@ def test_register_creates_committed_user(session: Session) -> None:
     assert saved_user is not None
     assert saved_user.password_hash != request.password
     assert verify_password(request.password, saved_user.password_hash) is True
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        f"auth.register.success user_id={response.id}",
+    ) in caplog.record_tuples
+    assert str(request.email) not in caplog.text
+    assert request.password not in caplog.text
+    assert request.nickname not in caplog.text
+    assert response.nickname not in caplog.text
+    assert saved_user.password_hash not in caplog.text
 
 
 def test_register_rejects_existing_email(session: Session) -> None:
@@ -177,6 +192,42 @@ def test_login_returns_token_pair_and_creates_session(
     assert payload["exp"] <= refresh_claims.expires_at
 
 
+def test_login_logs_success_without_sensitive_data(
+    session: Session,
+    login_rate_limiter: Mock,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    request = LoginRequest(
+        email="user@example.com",
+        password="password123",
+    )
+
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        response = service.login(
+            request,
+            login_rate_limiter,
+            session_repository,
+        )
+
+    session_record = session_repository.create.call_args.args[0]
+
+    assert f"auth.login.success user_id={user.id}" in caplog.messages
+    assert str(request.email) not in caplog.text
+    assert request.password not in caplog.text
+    assert response.access_token not in caplog.text
+    assert response.refresh_token not in caplog.text
+    assert session_record.session_id not in caplog.text
+    assert session_record.refresh_token_hash not in caplog.text
+
+
 def test_login_rejects_unknown_email(
     session: Session,
     login_rate_limiter: Mock,
@@ -202,22 +253,32 @@ def test_login_rejects_rate_limited_identifier(
     session: Session,
     login_rate_limiter: Mock,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     login_rate_limiter.reserve_attempt.return_value = False
     service = AuthService(session)
 
-    with pytest.raises(LoginRateLimitExceededError):
-        service.login(
-            LoginRequest(
-                email="USER@example.com",
-                password="password123",
-            ),
-            login_rate_limiter,
-            session_repository,
-        )
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(LoginRateLimitExceededError):
+            service.login(
+                LoginRequest(
+                    email="USER@example.com",
+                    password="password123",
+                ),
+                login_rate_limiter,
+                session_repository,
+            )
 
     login_rate_limiter.reserve_attempt.assert_called_once_with("user@example.com")
     login_rate_limiter.reset.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        "auth.login.rate_limited reason=attempt_limit_exceeded",
+    ) in caplog.record_tuples
+    assert "USER@example.com" not in caplog.text
+    assert "user@example.com" not in caplog.text
+    assert "password123" not in caplog.text
 
 
 def test_login_checks_password_for_unknown_email(
@@ -362,6 +423,7 @@ def test_refresh_returns_rotated_token_pair(
     session: Session,
     session_repository: Mock,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     user = service.register(
@@ -412,10 +474,11 @@ def test_refresh_returns_rotated_token_pair(
     monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "absolute")
     monkeypatch.setattr("app.services.auth_service.time", lambda: rotated_at)
 
-    response = service.refresh(
-        RefreshRequest(refresh_token=old_refresh_token),
-        session_repository,
-    )
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        response = service.refresh(
+            RefreshRequest(refresh_token=old_refresh_token),
+            session_repository,
+        )
 
     new_refresh_header = jwt.get_unverified_header(response.refresh_token)
     new_access_header = jwt.get_unverified_header(response.access_token)
@@ -454,20 +517,43 @@ def test_refresh_returns_rotated_token_pair(
     assert old_refresh_header["kid"] == "v1"
     assert new_refresh_header["kid"] == "v2"
     assert new_access_header["kid"] == "v2"
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        f"auth.refresh.success user_id={user.id}",
+    ) in caplog.record_tuples
+    assert "user@example.com" not in caplog.text
+    assert old_refresh_token not in caplog.text
+    assert response.refresh_token not in caplog.text
+    assert response.access_token not in caplog.text
+    assert session_id not in caplog.text
+    assert rotation.expected_refresh_token_hash not in caplog.text
+    assert rotation.new_refresh_token_hash not in caplog.text
 
 
 @pytest.mark.parametrize(
-    "rotation_result",
+    ("rotation_result", "expected_event", "expected_reason"),
     [
-        SessionRotationResult.SESSION_NOT_FOUND,
-        SessionRotationResult.TOKEN_MISMATCH,
+        (
+            SessionRotationResult.SESSION_NOT_FOUND,
+            "auth.refresh.rejected",
+            "session_not_found",
+        ),
+        (
+            SessionRotationResult.TOKEN_MISMATCH,
+            "auth.refresh.replay_detected",
+            "token_mismatch",
+        ),
     ],
 )
 def test_refresh_rejects_failed_rotation(
     rotation_result: SessionRotationResult,
+    expected_event: str,
+    expected_reason: str,
     session: Session,
     session_repository: Mock,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     user = service.register(
@@ -497,20 +583,31 @@ def test_refresh_rejects_failed_rotation(
     monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "absolute")
     monkeypatch.setattr("app.services.auth_service.time", lambda: rotated_at)
 
-    with pytest.raises(InvalidRefreshTokenError):
-        service.refresh(
-            RefreshRequest(refresh_token=old_refresh_token),
-            session_repository,
-        )
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.refresh(
+                RefreshRequest(refresh_token=old_refresh_token),
+                session_repository,
+            )
 
     session_repository.get.assert_called_once_with(session_id)
     session_repository.create.assert_not_called()
     session_repository.rotate.assert_called_once()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"{expected_event} user_id={user.id} reason={expected_reason}",
+    ) in caplog.record_tuples
+    assert "user@example.com" not in caplog.text
+    assert old_refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(old_refresh_token) not in caplog.text
 
 
 def test_refresh_rejects_missing_session_before_rotation(
     session: Session,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     user = service.register(
@@ -527,20 +624,172 @@ def test_refresh_rejects_missing_session_before_rotation(
     )
     session_repository.get.return_value = None
 
-    with pytest.raises(InvalidRefreshTokenError):
-        service.refresh(
-            RefreshRequest(refresh_token=refresh_token),
-            session_repository,
-        )
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.refresh(
+                RefreshRequest(refresh_token=refresh_token),
+                session_repository,
+            )
 
     session_repository.get.assert_called_once_with(session_id)
     session_repository.create.assert_not_called()
     session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.refresh.rejected user_id={user.id} reason=session_not_found",
+    ) in caplog.record_tuples
+    assert "user@example.com" not in caplog.text
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
+
+
+def test_refresh_rejects_session_user_mismatch_without_rotation(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    session_id = "mismatched-user-session-id"
+    expires_at = int(time()) + 3_600
+    refresh_token = create_refresh_token(
+        user_id=user.id,
+        session_id=session_id,
+        expires_at=expires_at,
+    )
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user.id + 1,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        created_at=expires_at - 600,
+        last_used_at=expires_at - 60,
+        expires_at=expires_at,
+        absolute_expires_at=expires_at,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.refresh(
+                RefreshRequest(refresh_token=refresh_token),
+                session_repository,
+            )
+
+    session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.refresh.rejected user_id={user.id} reason=user_mismatch",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
+
+
+def test_refresh_rejects_missing_user_without_rotation(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user_id = 999
+    session_id = "missing-user-session-id"
+    expires_at = int(time()) + 3_600
+    refresh_token = create_refresh_token(
+        user_id=user_id,
+        session_id=session_id,
+        expires_at=expires_at,
+    )
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user_id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        created_at=expires_at - 600,
+        last_used_at=expires_at - 60,
+        expires_at=expires_at,
+        absolute_expires_at=expires_at,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.refresh(
+                RefreshRequest(refresh_token=refresh_token),
+                session_repository,
+            )
+
+    session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.refresh.rejected user_id={user_id} reason=user_not_found",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
+
+
+def test_refresh_rejects_expired_session_without_rotation(
+    session: Session,
+    session_repository: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    now = int(time())
+    expires_at = now + 3_600
+    session_id = "expired-session-id"
+    refresh_token = create_refresh_token(
+        user_id=user.id,
+        session_id=session_id,
+        expires_at=expires_at,
+    )
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user.id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        created_at=now - 600,
+        last_used_at=now - 60,
+        expires_at=expires_at,
+        absolute_expires_at=expires_at,
+    )
+    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "absolute")
+    monkeypatch.setattr("app.services.auth_service.time", lambda: expires_at)
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.refresh(
+                RefreshRequest(refresh_token=refresh_token),
+                session_repository,
+            )
+
+    session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.refresh.rejected user_id={user.id} reason=session_expired",
+    ) in caplog.record_tuples
+    assert "user@example.com" not in caplog.text
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
 
 
 def test_logout_deletes_current_session(
     session: Session,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     user_id = 42
@@ -552,10 +801,11 @@ def test_logout_deletes_current_session(
     )
     session_repository.delete_if_matches.return_value = SessionDeletionResult.SUCCESS
 
-    result = service.logout(
-        LogoutRequest(refresh_token=refresh_token),
-        session_repository,
-    )
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        result = service.logout(
+            LogoutRequest(refresh_token=refresh_token),
+            session_repository,
+        )
 
     assert result is None
     session_repository.delete_if_matches.assert_called_once_with(
@@ -569,11 +819,20 @@ def test_logout_deletes_current_session(
     session_repository.delete.assert_not_called()
     session_repository.create.assert_not_called()
     session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        f"auth.logout.success user_id={user_id} result=deleted",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
 
 
 def test_logout_succeeds_when_session_is_already_missing(
     session: Session,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     session_id = "missing-session-id"
@@ -586,10 +845,11 @@ def test_logout_succeeds_when_session_is_already_missing(
         SessionDeletionResult.SESSION_NOT_FOUND
     )
 
-    result = service.logout(
-        LogoutRequest(refresh_token=refresh_token),
-        session_repository,
-    )
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        result = service.logout(
+            LogoutRequest(refresh_token=refresh_token),
+            session_repository,
+        )
 
     assert result is None
     session_repository.delete_if_matches.assert_called_once_with(
@@ -601,11 +861,20 @@ def test_logout_succeeds_when_session_is_already_missing(
     )
     session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        "auth.logout.success user_id=42 result=already_missing",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert session_id not in caplog.text
+    assert hash_refresh_token(refresh_token) not in caplog.text
 
 
 def test_logout_rejects_session_mismatch(
     session: Session,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = AuthService(session)
     user_id = 42
@@ -619,11 +888,12 @@ def test_logout_rejects_session_mismatch(
         SessionDeletionResult.SESSION_MISMATCH
     )
 
-    with pytest.raises(InvalidRefreshTokenError):
-        service.logout(
-            LogoutRequest(refresh_token=refresh_token),
-            session_repository,
-        )
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidRefreshTokenError):
+            service.logout(
+                LogoutRequest(refresh_token=refresh_token),
+                session_repository,
+            )
 
     session_repository.delete_if_matches.assert_called_once_with(
         SessionDeletion(
@@ -634,6 +904,7 @@ def test_logout_rejects_session_mismatch(
     )
     session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
+    assert "auth.logout.success" not in caplog.text
 
 
 def test_refresh_extends_expiration_in_sliding_mode(

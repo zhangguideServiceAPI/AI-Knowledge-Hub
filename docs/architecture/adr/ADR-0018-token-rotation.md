@@ -19,7 +19,7 @@ Hash 不匹配还可能表示已经使用过的 Refresh Token 被再次提交。
 - 当前 Hash 与客户端提交 Token 的 Hash 不一致时，视为旧 Token 重用或 Replay。脚本原子删除当前 Session Hash，并从用户 Session Sorted Set 删除该 Session ID，然后返回 `TOKEN_MISMATCH`。
 - Replay 只撤销当前 `sid` 对应的设备 Session，不撤销同一用户的其他设备 Session。
 - Refresh Service 将 `SESSION_NOT_FOUND` 和 `TOKEN_MISMATCH` 都映射为 HTTP 401，不向客户端暴露内部判断细节。
-- Replay 安全事件在 Story 2.8 使用 WARNING 日志记录，但日志不得包含原始 Token 或 Token Hash。
+- Replay 安全事件已在 Story 2.8 使用 WARNING 日志记录，但日志不得包含原始 Token 或 Token Hash。
 - Redis 无法完成脚本时失败关闭，由 API 返回 HTTP 503，不绕过 Rotation。
 - 客户端必须使用单航班 Refresh，避免同一设备并发使用同一个旧 Token 导致 Session 被安全撤销。
 - 使用真实 Redis 验证 Lua 更新、旧 Token 重用撤销和并发请求只有一次成功；Mock 只验证 Python 调用与返回码映射。

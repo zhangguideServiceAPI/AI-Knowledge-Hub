@@ -48,7 +48,7 @@
 - Session 已不存在时 Logout 返回成功，保持重复请求幂等；Redis 故障时返回 503，不能假装撤销成功。
 - Refresh Service/API 已完成，本文和 API 文档中的契约现已成为启用接口。
 - 客户端恢复请求契约和未来浏览器安全基线由 ADR-0019 继续约束。
-- Replay Attack 的 Session 撤销范围和并发误判策略已由 ADR-0018 明确；安全事件日志留在 Story 2.8 完成。
+- Replay Attack 的 Session 撤销范围和并发误判策略已由 ADR-0018 明确；安全事件日志已在 Story 2.8 完成。
 
 ## 未采用方案
 

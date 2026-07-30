@@ -1,5 +1,7 @@
+import logging
 from unittest.mock import Mock
 
+import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from jose import jwt
@@ -141,26 +143,37 @@ def test_login_returns_too_many_requests_when_rate_limited(
 def test_login_returns_service_unavailable_when_rate_limit_check_fails(
     client: TestClient,
     login_rate_limiter: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     login_rate_limiter.reserve_attempt.side_effect = RedisError("test Redis outage")
 
-    response = client.post(
-        "/auth/login",
-        json={
-            "email": "user@example.com",
-            "password": "password123",
-        },
-    )
+    with caplog.at_level(logging.ERROR, logger="ai_knowledge_hub"):
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "user@example.com",
+                "password": "password123",
+            },
+        )
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert response.json() == {
         "detail": "Authentication service is temporarily unavailable.",
     }
+    assert (
+        "ai_knowledge_hub",
+        logging.ERROR,
+        "auth.redis.unavailable method=POST path=/auth/login error_type=RedisError",
+    ) in caplog.record_tuples
+    assert "user@example.com" not in caplog.text
+    assert "password123" not in caplog.text
+    assert "test Redis outage" not in caplog.text
 
 
 def test_login_returns_service_unavailable_when_session_creation_fails(
     client: TestClient,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     credentials = {
         "email": "user@example.com",
@@ -169,12 +182,21 @@ def test_login_returns_service_unavailable_when_session_creation_fails(
     client.post("/auth/register", json=credentials)
     session_repository.create.side_effect = RedisError("test Redis outage")
 
-    response = client.post("/auth/login", json=credentials)
+    with caplog.at_level(logging.ERROR, logger="ai_knowledge_hub"):
+        response = client.post("/auth/login", json=credentials)
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert response.json() == {
         "detail": "Authentication service is temporarily unavailable.",
     }
+    assert (
+        "ai_knowledge_hub",
+        logging.ERROR,
+        "auth.redis.unavailable method=POST path=/auth/login error_type=RedisError",
+    ) in caplog.record_tuples
+    assert credentials["email"] not in caplog.text
+    assert credentials["password"] not in caplog.text
+    assert "test Redis outage" not in caplog.text
 
 
 def test_login_returns_unauthorized_for_wrong_password(
@@ -339,6 +361,7 @@ def test_refresh_returns_forbidden_for_inactive_user(
 def test_refresh_returns_service_unavailable_when_redis_is_down(
     client: TestClient,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     credentials = {
         "email": "user@example.com",
@@ -351,16 +374,24 @@ def test_refresh_returns_service_unavailable_when_redis_is_down(
     session_repository.reset_mock()
     session_repository.get.side_effect = RedisError("test Redis outage")
 
-    response = client.post(
-        "/auth/refresh",
-        json={"refresh_token": refresh_token},
-    )
+    with caplog.at_level(logging.ERROR, logger="ai_knowledge_hub"):
+        response = client.post(
+            "/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert response.json() == {
         "detail": "Authentication service is temporarily unavailable.",
     }
     session_repository.rotate.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.ERROR,
+        "auth.redis.unavailable method=POST path=/auth/refresh error_type=RedisError",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert "test Redis outage" not in caplog.text
 
 
 def test_logout_returns_no_content_and_deletes_current_session(
@@ -482,6 +513,7 @@ def test_logout_returns_unauthorized_for_session_mismatch(
 def test_logout_returns_service_unavailable_when_redis_is_down(
     client: TestClient,
     session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     credentials = {
         "email": "user@example.com",
@@ -494,10 +526,11 @@ def test_logout_returns_service_unavailable_when_redis_is_down(
     session_repository.reset_mock()
     session_repository.delete_if_matches.side_effect = RedisError("test Redis outage")
 
-    response = client.post(
-        "/auth/logout",
-        json={"refresh_token": refresh_token},
-    )
+    with caplog.at_level(logging.ERROR, logger="ai_knowledge_hub"):
+        response = client.post(
+            "/auth/logout",
+            json={"refresh_token": refresh_token},
+        )
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert response.json() == {
@@ -505,3 +538,10 @@ def test_logout_returns_service_unavailable_when_redis_is_down(
     }
     session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.ERROR,
+        "auth.redis.unavailable method=POST path=/auth/logout error_type=RedisError",
+    ) in caplog.record_tuples
+    assert refresh_token not in caplog.text
+    assert "test Redis outage" not in caplog.text
