@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.9 User Session Design
+Current Story: Sprint 2 Closeout
 Current Goal:
-  - Design Multi-device Session Visibility
-  - Define Current-device and Revocation Contracts
+  - Complete Authentication Flow Documentation
+  - Complete Sprint Review and Acceptance
 
 In Progress:
-  - Session and Identity Management
-  - User Session Management Design
+  - Session and Identity Management Review
+  - Sprint 2 Documentation and Acceptance
 
 Not Started:
   - AI Chat

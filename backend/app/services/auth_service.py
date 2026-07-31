@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from time import time
 
 from sqlalchemy.exc import IntegrityError
@@ -11,9 +12,11 @@ from app.core.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     LoginRateLimitExceededError,
+    UserSessionNotFoundError,
 )
 from app.core.logging import logger
 from app.core.security import (
+    AccessTokenClaims,
     DUMMY_PASSWORD_HASH,
     calculate_initial_session_expiration,
     calculate_rotated_session_expiration,
@@ -27,10 +30,14 @@ from app.core.security import (
     verify_password,
 )
 from app.db.repositories.session_repository import (
+    SessionBulkRevocation,
+    SessionBulkRevocationStatus,
     SessionDeletion,
     SessionDeletionResult,
     SessionRecord,
     SessionRepository,
+    SessionRevocation,
+    SessionRevocationResult,
     SessionRotation,
     SessionRotationResult,
 )
@@ -43,6 +50,7 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenPairResponse,
 )
+from app.schemas.session import UserSessionListResponse, UserSessionResponse
 from app.schemas.user import UserResponse
 from app.services.login_rate_limiter import LoginRateLimiter
 
@@ -87,6 +95,9 @@ class AuthService:
         request: LoginRequest,
         rate_limiter: LoginRateLimiter,
         session_repository: SessionRepository,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> TokenPairResponse:
         email = str(request.email).strip().lower()
 
@@ -121,6 +132,7 @@ class AuthService:
         access_token = create_access_token(
             user_model.id,
             session_expires_at=session_expiration.expires_at,
+            session_id=session_id,
         )
 
         session_repository.create(
@@ -132,6 +144,8 @@ class AuthService:
                 last_used_at=created_at,
                 expires_at=session_expiration.expires_at,
                 absolute_expires_at=session_expiration.absolute_expires_at,
+                ip_address=ip_address,
+                user_agent=user_agent,
             ),
             ttl_seconds=ttl_seconds,
         )
@@ -152,8 +166,8 @@ class AuthService:
         )
 
     def get_current_user(self, token: str) -> UserResponse:
-        user_id = decode_access_token(token)
-        user_model = self._user_repository.get_by_id(user_id)
+        claims = decode_access_token(token)
+        user_model = self._user_repository.get_by_id(claims.user_id)
 
         if user_model is None:
             raise InvalidAccessTokenError()
@@ -218,6 +232,7 @@ class AuthService:
         )
         new_access_token = create_access_token(
             user_model.id,
+            session_id=claims.session_id,
             session_expires_at=rotated_expires_at,
         )
 
@@ -285,4 +300,140 @@ class AuthService:
             "auth.logout.success user_id=%s result=%s",
             claims.user_id,
             logout_result,
+        )
+
+    def _require_current_session(
+        self,
+        token: str,
+        session_repository: SessionRepository,
+    ) -> AccessTokenClaims:
+        claims = decode_access_token(token)
+
+        if claims.session_id is None:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=missing_session_id",
+                claims.user_id,
+            )
+            raise InvalidAccessTokenError()
+
+        user_model = self._user_repository.get_by_id(claims.user_id)
+
+        if user_model is None:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=user_not_found",
+                claims.user_id,
+            )
+            raise InvalidAccessTokenError()
+
+        if user_model.status != UserStatus.ACTIVE:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=user_inactive",
+                claims.user_id,
+            )
+            raise InactiveUserError()
+
+        session_record = session_repository.get(claims.session_id)
+
+        if session_record is None:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=session_not_found",
+                claims.user_id,
+            )
+            raise InvalidAccessTokenError()
+
+        if session_record.user_id != claims.user_id:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=user_mismatch",
+                claims.user_id,
+            )
+            raise InvalidAccessTokenError()
+
+        return claims
+
+    def list_sessions(
+        self,
+        token: str,
+        session_repository: SessionRepository,
+    ) -> UserSessionListResponse:
+        claims = self._require_current_session(token, session_repository)
+        records = session_repository.list_for_user(claims.user_id)
+
+        return UserSessionListResponse(
+            sessions=[
+                UserSessionResponse(
+                    id=record.session_id,
+                    current=record.session_id == claims.session_id,
+                    ip_address=record.ip_address,
+                    user_agent=record.user_agent,
+                    created_at=datetime.fromtimestamp(
+                        record.created_at,
+                        tz=timezone.utc,
+                    ),
+                    last_used_at=datetime.fromtimestamp(
+                        record.last_used_at,
+                        tz=timezone.utc,
+                    ),
+                    expires_at=datetime.fromtimestamp(
+                        record.expires_at,
+                        tz=timezone.utc,
+                    ),
+                )
+                for record in records
+            ]
+        )
+
+    def revoke_session(
+        self,
+        token: str,
+        target_session_id: str,
+        session_repository: SessionRepository,
+    ) -> None:
+        claims = self._require_current_session(token, session_repository)
+
+        result = session_repository.revoke(
+            SessionRevocation(
+                session_id=target_session_id,
+                user_id=claims.user_id,
+            )
+        )
+        if result is SessionRevocationResult.NOT_FOUND:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=target_not_found",
+                claims.user_id,
+            )
+            raise UserSessionNotFoundError()
+
+        target = "current" if target_session_id == claims.session_id else "other"
+        logger.info(
+            "auth.session.revoked user_id=%s target=%s",
+            claims.user_id,
+            target,
+        )
+
+    def revoke_all_sessions(
+        self,
+        token: str,
+        session_repository: SessionRepository,
+    ) -> None:
+        claims = self._require_current_session(token, session_repository)
+        assert claims.session_id is not None
+
+        result = session_repository.revoke_all(
+            SessionBulkRevocation(
+                current_session_id=claims.session_id,
+                user_id=claims.user_id,
+            )
+        )
+
+        if result.status is SessionBulkRevocationStatus.CURRENT_SESSION_NOT_FOUND:
+            logger.warning(
+                "auth.session_management.rejected user_id=%s reason=session_not_found",
+                claims.user_id,
+            )
+            raise InvalidAccessTokenError()
+
+        logger.info(
+            "auth.sessions.revoked_all user_id=%s revoked_count=%s",
+            claims.user_id,
+            result.revoked_count,
         )

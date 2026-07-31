@@ -75,6 +75,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(
     user_id: int,
+    session_id: str,
     session_expires_at: int | None = None,
 ) -> str:
     issued_at = datetime.now(timezone.utc)
@@ -92,6 +93,7 @@ def create_access_token(
     payload = {
         "sub": str(user_id),
         "type": ACCESS_TOKEN_TYPE,
+        "sid": session_id,
         "iat": issued_at,
         "exp": expires_at,
     }
@@ -104,7 +106,15 @@ def create_access_token(
     )
 
 
-def decode_access_token(token: str) -> int:
+@dataclass(frozen=True)
+class AccessTokenClaims:
+    user_id: int
+    session_id: str | None
+    issued_at: int
+    expires_at: int
+
+
+def decode_access_token(token: str) -> AccessTokenClaims:
     try:
         verification_secret = _get_jwt_verification_secret(token)
         payload = jwt.decode(
@@ -121,7 +131,16 @@ def decode_access_token(token: str) -> int:
         if payload.get("type") != ACCESS_TOKEN_TYPE:
             raise InvalidAccessTokenError()
 
+        session_id = payload.get("sid")
+
+        if session_id is not None and (
+            not isinstance(session_id, str) or not session_id
+        ):
+            raise InvalidAccessTokenError()
+
         user_id = int(payload["sub"])
+        issued_at = int(payload["iat"])
+        expires_at = int(payload["exp"])
 
         if user_id <= 0:
             raise InvalidAccessTokenError()
@@ -129,7 +148,12 @@ def decode_access_token(token: str) -> int:
     except (JWTError, KeyError, TypeError, ValueError) as error:
         raise InvalidAccessTokenError() from error
 
-    return user_id
+    return AccessTokenClaims(
+        user_id=user_id,
+        session_id=session_id,
+        issued_at=issued_at,
+        expires_at=expires_at,
+    )
 
 
 def hash_refresh_token(token: str) -> str:

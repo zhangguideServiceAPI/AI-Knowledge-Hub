@@ -4,10 +4,15 @@ import pytest
 from redis import Redis
 
 from app.db.repositories.session_repository import (
+    SessionBulkRevocation,
+    SessionBulkRevocationResult,
+    SessionBulkRevocationStatus,
     SessionDeletion,
     SessionDeletionResult,
     SessionRecord,
     SessionRepository,
+    SessionRevocation,
+    SessionRevocationResult,
     SessionRotation,
     SessionRotationResult,
 )
@@ -165,6 +170,8 @@ def test_create_stores_session_hash_with_ttl() -> None:
         last_used_at=1_100,
         expires_at=605_800,
         absolute_expires_at=2_593_000,
+        ip_address="203.0.113.10",
+        user_agent="AIKnowledgeHub/1.0 (iOS 18)",
     )
     repository = SessionRepository(client)
     repository.create(session, ttl_seconds=604_800)
@@ -179,6 +186,8 @@ def test_create_stores_session_hash_with_ttl() -> None:
             "last_used_at": "1100",
             "expires_at": "605800",
             "absolute_expires_at": "2593000",
+            "ip_address": "203.0.113.10",
+            "user_agent": "AIKnowledgeHub/1.0 (iOS 18)",
         },
     )
     pipeline.expire.assert_called_once_with(
@@ -193,6 +202,36 @@ def test_create_stores_session_hash_with_ttl() -> None:
 
 
 def test_get_returns_session_record() -> None:
+    client = Mock(spec=Redis)
+    client.hgetall.return_value = {
+        "user_id": "42",
+        "refresh_token_hash": "a" * 64,
+        "created_at": "1000",
+        "last_used_at": "1100",
+        "expires_at": "605800",
+        "absolute_expires_at": "2593000",
+        "ip_address": "203.0.113.10",
+        "user_agent": "AIKnowledgeHub/1.0 (iOS 18)",
+    }
+    repository = SessionRepository(client)
+
+    result = repository.get("abc")
+
+    assert result == SessionRecord(
+        session_id="abc",
+        user_id=42,
+        refresh_token_hash="a" * 64,
+        created_at=1_000,
+        last_used_at=1_100,
+        expires_at=605_800,
+        absolute_expires_at=2_593_000,
+        ip_address="203.0.113.10",
+        user_agent="AIKnowledgeHub/1.0 (iOS 18)",
+    )
+    client.hgetall.assert_called_once_with("auth:session:abc")
+
+
+def test_get_returns_legacy_session_without_optional_metadata() -> None:
     client = Mock(spec=Redis)
     client.hgetall.return_value = {
         "user_id": "42",
@@ -312,3 +351,114 @@ def test_list_for_user_returns_empty_list_when_index_is_empty() -> None:
     )
     client.pipeline.assert_not_called()
     client.zrem.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("redis_result", "expected_result"),
+    [
+        (1, SessionRevocationResult.SUCCESS),
+        (0, SessionRevocationResult.NOT_FOUND),
+    ],
+)
+def test_revoke_maps_redis_result(
+    redis_result: int,
+    expected_result: SessionRevocationResult,
+) -> None:
+    client = Mock(spec=Redis)
+    client.eval.return_value = redis_result
+    repository = SessionRepository(client)
+
+    revocation = SessionRevocation(
+        session_id="abc",
+        user_id=42,
+    )
+
+    result = repository.revoke(revocation)
+
+    assert result is expected_result
+    client.eval.assert_called_once_with(
+        ANY,
+        2,
+        "auth:session:abc",
+        "auth:user:42:sessions",
+        "42",
+        "abc",
+    )
+
+
+def test_revoke_raises_when_script_returns_unexpected_result() -> None:
+    client = Mock(spec=Redis)
+    client.eval.return_value = 99
+    repository = SessionRepository(client)
+
+    revocation = SessionRevocation(
+        session_id="abc",
+        user_id=42,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unexpected session revocation result: 99",
+    ):
+        repository.revoke(revocation)
+
+
+@pytest.mark.parametrize(
+    ("redis_result", "expected_result"),
+    [
+        (
+            3,
+            SessionBulkRevocationResult(
+                SessionBulkRevocationStatus.SUCCESS, revoked_count=3
+            ),
+        ),
+        (
+            -1,
+            SessionBulkRevocationResult(
+                SessionBulkRevocationStatus.CURRENT_SESSION_NOT_FOUND, revoked_count=0
+            ),
+        ),
+    ],
+)
+def test_revoke_all_maps_redis_result(
+    redis_result: int,
+    expected_result: SessionBulkRevocationResult,
+) -> None:
+    client = Mock(spec=Redis)
+    client.eval.return_value = redis_result
+    repository = SessionRepository(client)
+
+    revocation = SessionBulkRevocation(
+        current_session_id="current",
+        user_id=42,
+    )
+
+    result = repository.revoke_all(revocation)
+
+    assert result == expected_result
+    client.eval.assert_called_once_with(
+        ANY,
+        2,
+        "auth:session:current",
+        "auth:user:42:sessions",
+        "42",
+        "auth:session:",
+    )
+
+
+@pytest.mark.parametrize("redis_result", [0, -2])
+def test_revoke_all_rejects_unexpected_redis_result(redis_result: int) -> None:
+    client = Mock(spec=Redis)
+    client.eval.return_value = redis_result
+    repository = SessionRepository(client)
+
+    revocation = SessionBulkRevocation(
+        current_session_id="current",
+        user_id=42,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=f"Unexpected bulk session revocation result: {redis_result}",
+    ):
+        repository.revoke_all(revocation)

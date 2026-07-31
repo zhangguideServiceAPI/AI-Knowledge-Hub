@@ -1,4 +1,5 @@
 import logging
+from datetime import timezone
 from time import time
 from unittest.mock import Mock
 
@@ -17,8 +18,10 @@ from app.core.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     LoginRateLimitExceededError,
+    UserSessionNotFoundError,
 )
 from app.core.security import (
+    AccessTokenClaims,
     DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
@@ -27,9 +30,14 @@ from app.core.security import (
     verify_password,
 )
 from app.db.repositories.session_repository import (
+    SessionBulkRevocation,
+    SessionBulkRevocationResult,
+    SessionBulkRevocationStatus,
     SessionDeletion,
     SessionDeletionResult,
     SessionRecord,
+    SessionRevocation,
+    SessionRevocationResult,
     SessionRotationResult,
 )
 from app.db.repositories.user_repository import UserRepository
@@ -155,6 +163,8 @@ def test_login_returns_token_pair_and_creates_session(
         ),
         login_rate_limiter,
         session_repository,
+        ip_address="203.0.113.10",
+        user_agent="AIKnowledgeHub/1.0 (iOS 18)",
     )
 
     payload = jwt.decode(
@@ -190,6 +200,9 @@ def test_login_returns_token_pair_and_creates_session(
 
     assert ttl_seconds == (settings.SESSION_TTL_DAYS * 86_400)
     assert payload["exp"] <= refresh_claims.expires_at
+
+    assert session_record.ip_address == "203.0.113.10"
+    assert session_record.user_agent == "AIKnowledgeHub/1.0 (iOS 18)"
 
 
 def test_login_logs_success_without_sensitive_data(
@@ -380,7 +393,7 @@ def test_get_current_user_returns_token_user(session: Session) -> None:
         )
     )
 
-    token = create_access_token(registered_user.id)
+    token = create_access_token(registered_user.id, "session-abc")
 
     current_user = service.get_current_user(token)
 
@@ -391,7 +404,7 @@ def test_get_current_user_returns_token_user(session: Session) -> None:
 
 def test_get_current_user_rejects_missing_user(session: Session) -> None:
     service = AuthService(session)
-    token = create_access_token(user_id=999)
+    token = create_access_token(user_id=999, session_id="session-abc")
 
     with pytest.raises(InvalidAccessTokenError):
         service.get_current_user(token)
@@ -413,7 +426,7 @@ def test_get_current_user_rejects_inactive_user(
     user_model.status = "disabled"
     session.commit()
 
-    token = create_access_token(registered_user.id)
+    token = create_access_token(registered_user.id, "session-abc")
 
     with pytest.raises(InactiveUserError):
         service.get_current_user(token)
@@ -958,3 +971,418 @@ def test_refresh_extends_expiration_in_sliding_mode(
     assert rotation.ttl_seconds == 7 * 86_400
     assert response.refresh_expires_in == 7 * 86_400
     assert new_refresh_claims.expires_at == expected_expires_at
+
+
+def test_list_sessions_rejects_access_token_without_session_id(
+    session: Session,
+    session_repository: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    token = "legacy-access-token"
+    monkeypatch.setattr(
+        "app.services.auth_service.decode_access_token",
+        lambda _token: AccessTokenClaims(
+            user_id=42,
+            session_id=None,
+            issued_at=1_700_000_000,
+            expires_at=1_700_003_600,
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidAccessTokenError):
+            service.list_sessions(token, session_repository)
+
+    session_repository.get.assert_not_called()
+    session_repository.list_for_user.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        "auth.session_management.rejected user_id=42 reason=missing_session_id",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+
+
+def test_list_sessions_rejects_missing_user(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    session_id = "missing-user-session-id"
+    token = create_access_token(user_id=999, session_id=session_id)
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidAccessTokenError):
+            service.list_sessions(token, session_repository)
+
+    session_repository.get.assert_not_called()
+    session_repository.list_for_user.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        "auth.session_management.rejected user_id=999 reason=user_not_found",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert session_id not in caplog.text
+
+
+def test_list_sessions_rejects_inactive_user(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    user_model = session.get(User, user.id)
+    assert user_model is not None
+    user_model.status = "disabled"
+    session.commit()
+
+    session_id = "inactive-user-session-id"
+    token = create_access_token(user_id=user.id, session_id=session_id)
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InactiveUserError):
+            service.list_sessions(token, session_repository)
+
+    session_repository.get.assert_not_called()
+    session_repository.list_for_user.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.session_management.rejected user_id={user.id} reason=user_inactive",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert session_id not in caplog.text
+
+
+def test_list_sessions_rejects_missing_current_session(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    session_id = "missing-current-session-id"
+    token = create_access_token(user_id=user.id, session_id=session_id)
+    session_repository.get.return_value = None
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidAccessTokenError):
+            service.list_sessions(token, session_repository)
+
+    session_repository.get.assert_called_once_with(session_id)
+    session_repository.list_for_user.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.session_management.rejected user_id={user.id} reason=session_not_found",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert session_id not in caplog.text
+
+
+def test_list_sessions_rejects_session_user_mismatch(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    session_id = "mismatched-current-session-id"
+    token = create_access_token(user_id=user.id, session_id=session_id)
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user.id + 1,
+        refresh_token_hash="test-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidAccessTokenError):
+            service.list_sessions(token, session_repository)
+
+    session_repository.list_for_user.assert_not_called()
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.session_management.rejected user_id={user.id} reason=user_mismatch",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert session_id not in caplog.text
+
+
+def test_list_sessions_marks_current_session_and_returns_utc_timestamps(
+    session: Session,
+    session_repository: Mock,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    current_session_id = "current-session-id"
+    current_record = SessionRecord(
+        session_id=current_session_id,
+        user_id=user.id,
+        refresh_token_hash="current-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+        ip_address="203.0.113.10",
+        user_agent="AIKnowledgeHub/1.0 (iOS 18)",
+    )
+    other_record = SessionRecord(
+        session_id="other-session-id",
+        user_id=user.id,
+        refresh_token_hash="other-refresh-token-hash",
+        created_at=1_700_001_000,
+        last_used_at=1_700_001_600,
+        expires_at=1_700_008_200,
+        absolute_expires_at=1_700_008_200,
+    )
+    token = create_access_token(user_id=user.id, session_id=current_session_id)
+    session_repository.get.return_value = current_record
+    session_repository.list_for_user.return_value = [current_record, other_record]
+
+    response = service.list_sessions(token, session_repository)
+
+    session_repository.get.assert_called_once_with(current_session_id)
+    session_repository.list_for_user.assert_called_once_with(user.id)
+    assert [record.id for record in response.sessions] == [
+        current_session_id,
+        other_record.session_id,
+    ]
+    assert [record.current for record in response.sessions] == [True, False]
+    assert response.sessions[0].ip_address == "203.0.113.10"
+    assert response.sessions[0].user_agent == "AIKnowledgeHub/1.0 (iOS 18)"
+    assert response.sessions[0].created_at.timestamp() == current_record.created_at
+    assert response.sessions[0].last_used_at.timestamp() == current_record.last_used_at
+    assert response.sessions[0].expires_at.timestamp() == current_record.expires_at
+    assert response.sessions[0].created_at.tzinfo is timezone.utc
+    assert response.sessions[1].ip_address is None
+    assert response.sessions[1].user_agent is None
+
+
+@pytest.mark.parametrize(
+    ("target_session_id", "expected_target"),
+    [
+        ("current-session-id", "current"),
+        ("other-session-id", "other"),
+    ],
+)
+def test_revoke_session_deletes_owned_target(
+    target_session_id: str,
+    expected_target: str,
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    current_session_id = "current-session-id"
+    token = create_access_token(user_id=user.id, session_id=current_session_id)
+    session_repository.get.return_value = SessionRecord(
+        session_id=current_session_id,
+        user_id=user.id,
+        refresh_token_hash="current-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+    )
+    session_repository.revoke.return_value = SessionRevocationResult.SUCCESS
+
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        result = service.revoke_session(
+            token,
+            target_session_id,
+            session_repository,
+        )
+
+    assert result is None
+    session_repository.revoke.assert_called_once_with(
+        SessionRevocation(
+            session_id=target_session_id,
+            user_id=user.id,
+        )
+    )
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        f"auth.session.revoked user_id={user.id} target={expected_target}",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert current_session_id not in caplog.text
+    assert target_session_id not in caplog.text
+
+
+def test_revoke_session_returns_not_found_without_leaking_target_id(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    current_session_id = "current-session-id"
+    target_session_id = "missing-or-foreign-session-id"
+    token = create_access_token(user_id=user.id, session_id=current_session_id)
+    session_repository.get.return_value = SessionRecord(
+        session_id=current_session_id,
+        user_id=user.id,
+        refresh_token_hash="current-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+    )
+    session_repository.revoke.return_value = SessionRevocationResult.NOT_FOUND
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(UserSessionNotFoundError):
+            service.revoke_session(
+                token,
+                target_session_id,
+                session_repository,
+            )
+
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.session_management.rejected user_id={user.id} reason=target_not_found",
+    ) in caplog.record_tuples
+    assert "auth.session.revoked" not in caplog.text
+    assert token not in caplog.text
+    assert current_session_id not in caplog.text
+    assert target_session_id not in caplog.text
+
+
+def test_revoke_all_sessions_deletes_owned_sessions_and_logs_count(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    current_session_id = "current-session-id"
+    token = create_access_token(user_id=user.id, session_id=current_session_id)
+    session_repository.get.return_value = SessionRecord(
+        session_id=current_session_id,
+        user_id=user.id,
+        refresh_token_hash="current-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+    )
+    session_repository.revoke_all.return_value = SessionBulkRevocationResult(
+        status=SessionBulkRevocationStatus.SUCCESS,
+        revoked_count=3,
+    )
+
+    with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
+        result = service.revoke_all_sessions(token, session_repository)
+
+    assert result is None
+    session_repository.revoke_all.assert_called_once_with(
+        SessionBulkRevocation(
+            current_session_id=current_session_id,
+            user_id=user.id,
+        )
+    )
+    assert (
+        "ai_knowledge_hub",
+        logging.INFO,
+        f"auth.sessions.revoked_all user_id={user.id} revoked_count=3",
+    ) in caplog.record_tuples
+    assert token not in caplog.text
+    assert current_session_id not in caplog.text
+
+
+def test_revoke_all_sessions_rejects_current_session_deleted_during_request(
+    session: Session,
+    session_repository: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = AuthService(session)
+    user = service.register(
+        RegisterRequest(
+            email="user@example.com",
+            password="password123",
+        )
+    )
+    current_session_id = "current-session-id"
+    token = create_access_token(user_id=user.id, session_id=current_session_id)
+
+    # 第一次读取成功，但 Lua 执行前 Session 被另一个请求删除。
+    session_repository.get.return_value = SessionRecord(
+        session_id=current_session_id,
+        user_id=user.id,
+        refresh_token_hash="current-refresh-token-hash",
+        created_at=1_700_000_000,
+        last_used_at=1_700_000_600,
+        expires_at=1_700_007_200,
+        absolute_expires_at=1_700_007_200,
+    )
+    session_repository.revoke_all.return_value = SessionBulkRevocationResult(
+        status=SessionBulkRevocationStatus.CURRENT_SESSION_NOT_FOUND,
+        revoked_count=0,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_knowledge_hub"):
+        with pytest.raises(InvalidAccessTokenError):
+            service.revoke_all_sessions(token, session_repository)
+
+    session_repository.revoke_all.assert_called_once_with(
+        SessionBulkRevocation(
+            current_session_id=current_session_id,
+            user_id=user.id,
+        )
+    )
+    assert (
+        "ai_knowledge_hub",
+        logging.WARNING,
+        f"auth.session_management.rejected user_id={user.id} reason=session_not_found",
+    ) in caplog.record_tuples
+    assert "auth.sessions.revoked_all" not in caplog.text
+    assert token not in caplog.text
+    assert current_session_id not in caplog.text
