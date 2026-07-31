@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.9 User Session Design
-Current Goal: Design multi-device session visibility and management
-Current Step: Define session list, current-device and revocation contracts
+Current Story: Sprint 2 Closeout
+Current Goal: Complete documentation, review and acceptance
+Current Step: Complete authentication flow diagrams and Sprint Review
 ```
 
 ## Sprint 目标
@@ -90,15 +90,16 @@ Logout
 
 多设备 Session
   [完成基础] 独立 Session ID、Hash、Sorted Set、TTL 和失效索引清理
-  [待设计] 当前设备、IP、User Agent、单设备/多设备策略接口
+  [完成] 当前设备、IP、User Agent 和 Session 管理接口
 
 Sprint 收尾
   [完成] 认证测试矩阵与真实 Redis 纵向集成测试
   [完成] 认证事件日志、敏感数据边界和日志洪泛边界
-  [待完成] 用户 Session 设计、注册登录全流程图和 Sprint Review
+  [完成] 用户 Session 设计与实现
+  [待完成] 注册登录全流程图和 Sprint Review
 ```
 
-当前学习位置：Story 2.8 Observability 已完成。现在进入 Story 2.9 User Session Design，设计多设备 Session 的查看、当前设备识别和撤销契约，暂不实现接口。
+当前学习位置：Story 2.9 User Session Design & Implementation 已完成。现在进入 Sprint 2 收尾，汇总注册、登录、Refresh、Logout 和 Session 管理流程，并完成最终 Review。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -228,7 +229,15 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-30）：扩充 ADR-0005，明确 Service、全局异常 Handler、标准流和未来集中式日志平台的职责边界。
 - 已完成（2026-07-30）：完整普通测试 150 项、真实 Redis Integration Test 8 项通过，Ruff、格式和 Documentation Review 无阻断问题。
 - Story 2.8 Observability：已完成（2026-07-30）。
-- 当前 Story：2.9 User Session Design；当前 Step：设计 Session 列表、当前设备识别和撤销契约。
+- Story 2.9 User Session Design & Implementation：已完成（2026-07-31）。
+- 已决定（2026-07-31）：Session 管理接口使用 Access Token `sub` 查询用户 Session，并使用新增 `sid` 标记和二次验证当前 Session；当前 Session 已失效时返回 401。
+- 已决定（2026-07-31）：IP 由可信服务端请求边界提取，User Agent 仅作展示；相同 User Agent 不代表同一设备，每次登录仍创建独立 Session。
+- 已决定（2026-07-31）：普通 Access API 不更新 `last_used_at`；目标 Session 不存在或不属于当前用户时统一返回 404，基础策略不引入主设备与 MFA。
+- 已决定（2026-07-31）：提供单个 Session 撤销和全部设备登出；全部撤销使用 Lua 原子完成，当前客户端立即清 Token，其他设备的 Refresh 立即失效而普通 Access 最迟自然有效到 `exp`。
+- 已决定（2026-07-31）：Access 解码返回结构化 Claims；新 Token 必须带 `sid`，旧 Token 缺少 `sid` 时普通 API 继续可用，但敏感 Session 管理接口返回 401。
+- 范围调整（2026-07-31）：Story 2.9 从仅设计调整为直接实现；按 Token Claims、Session 元数据、原子 Repository、Service/API 和完整验收顺序推进。
+- 已完成（2026-07-31）：实现 `GET /users/sessions`、`DELETE /users/sessions/{session_id}` 和 `DELETE /users/sessions`，支持当前设备标记、单设备撤销和全部设备登出。
+- 已完成（2026-07-31）：普通测试 185 项、真实 Redis Integration Test 10 项、Ruff、格式和 `git diff --check` 全部通过。
 
 ## North Star
 
@@ -604,28 +613,34 @@ Schema / Config / Security Unit Test
 - 完整默认测试 150 项、真实 Redis Integration Test 8 项、Ruff 和格式检查全部通过。
 - Story Review：97/100，无阻断问题；结构化日志、Request ID 和集中式存储留到 Sprint 9。
 
-## Story 2.9: User Session Design
+## Story 2.9: User Session Design & Implementation
 
-**状态：进行中（2026-07-30），仅设计，暂不实现接口**
+**状态：已完成（2026-07-31）**
 
-### 设计接口
+### 实现接口
 
 ```http
 GET /users/sessions
+DELETE /users/sessions/{session_id}
+DELETE /users/sessions
 ```
 
-### 设计内容
+### 完成内容
 
-- 当前设备。
-- 登录时间。
-- IP。
-- User Agent。
-- 最后活动时间。
+- Access Token 增加 `sid`，Refresh Rotation 保持同一 Session ID，旧 Token 缺少 `sid` 时仅限制敏感 Session 管理接口。
+- Session Hash 保存可选 IP 和 User Agent；列表返回登录时间、最后活动时间、过期时间和当前设备标记。
+- Service 在 Session 管理前验证 SQL 用户状态，以及 Access Token `sid` 对应的 Redis Session 所有权。
+- 单设备撤销使用 Lua 原子校验目标所有者并删除 Hash 与 Sorted Set 成员。
+- 全部设备登出使用 Lua 原子验证当前 Session，并删除当前用户操作开始前已有的全部 Session。
+- 不存在和其他用户的目标 Session 统一返回 404；当前 Session 失效统一返回 401。
+- 日志只记录用户 ID、固定原因、目标类型或撤销数量，不记录 Token、Session ID、IP 和 User Agent。
 
-### 预留范围
+### 完成结果
 
-- 单设备踢下线。
-- 全部设备登出。
+- AuthService 测试覆盖当前 Session 鉴权、列表映射、单设备撤销、404、全部撤销和并发竞态。
+- API 测试覆盖 200、204、401、403、404、503 和敏感日志排除。
+- Repository 单元测试与真实 Redis 集成测试验证所有者校验、原子删除和索引维护。
+- 完整普通测试 185 项、真实 Redis Integration Test 10 项通过。
 
 ## 文档输出
 

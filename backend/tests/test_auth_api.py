@@ -9,6 +9,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth import USER_AGENT_MAX_LENGTH
 from app.core.config import settings
 from app.core.security import decode_refresh_token, hash_refresh_token
 from app.db.repositories.session_repository import (
@@ -63,7 +64,10 @@ def test_register_returns_validation_error(client: TestClient) -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_login_returns_token_pair(client: TestClient) -> None:
+def test_login_returns_token_pair(
+    client: TestClient,
+    session_repository: Mock,
+) -> None:
     credentials = {
         "email": "user@example.com",
         "password": "password123",
@@ -71,7 +75,14 @@ def test_login_returns_token_pair(client: TestClient) -> None:
 
     client.post("/auth/register", json=credentials)
 
-    response = client.post("/auth/login", json=credentials)
+    response = client.post(
+        "/auth/login",
+        json=credentials,
+        headers={
+            "User-Agent": "AIKnowledgeHub/1.0 (iOS 18)",
+            "X-Forwarded-For": "203.0.113.10",
+        },
+    )
     response_data = response.json()
     access_payload = jwt.decode(
         response_data["access_token"],
@@ -83,6 +94,8 @@ def test_login_returns_token_pair(client: TestClient) -> None:
         settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
+
+    session_record = session_repository.create.call_args.args[0]
 
     assert response.status_code == status.HTTP_200_OK
     assert response_data["token_type"] == "bearer"
@@ -99,6 +112,32 @@ def test_login_returns_token_pair(client: TestClient) -> None:
         refresh_payload["exp"] - refresh_payload["iat"]
         == response_data["refresh_expires_in"]
     )
+    assert session_record.user_agent == "AIKnowledgeHub/1.0 (iOS 18)"
+    assert session_record.ip_address == "testclient"
+
+
+def test_login_truncates_long_user_agent(
+    client: TestClient,
+    session_repository: Mock,
+) -> None:
+    credentials = {
+        "email": "user@example.com",
+        "password": "password123",
+    }
+    long_user_agent = "a" * (USER_AGENT_MAX_LENGTH + 100)
+
+    client.post("/auth/register", json=credentials)
+    response = client.post(
+        "/auth/login",
+        json=credentials,
+        headers={"User-Agent": long_user_agent},
+    )
+
+    session_record = session_repository.create.call_args.args[0]
+
+    assert response.status_code == status.HTTP_200_OK
+    assert session_record.user_agent == long_user_agent[:USER_AGENT_MAX_LENGTH]
+    assert len(session_record.user_agent) == USER_AGENT_MAX_LENGTH
 
 
 def test_login_returns_unauthorized_for_unknown_email(
