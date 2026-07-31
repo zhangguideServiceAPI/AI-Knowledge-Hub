@@ -20,7 +20,7 @@
 - Refresh 先验证 JWT，再验证 Redis Session 存在、Session 用户与 `sub` 一致、提交 Token 的 Hash 与当前 Hash 一致。
 - Hash 比较与新 Hash 替换必须原子执行；具体 Redis 原子方案、并发行为和 Replay 处置由 ADR-0018 决定。
 - 默认使用固定过期模式。Session、Redis TTL 和 Refresh Token `exp` 对齐到首次登录后第 7 天，Rotation 不延长最终期限。
-- 目标实现中的 Access Token `exp` 不得晚于 Session 当前过期时间。
+- Access Token 包含当前 `sid`，并且 `exp` 不得晚于 Session 当前过期时间。
 - Sliding 模式可以通过配置启用，但必须受 `absolute_expires_at` 限制；安全 Review 后仍决定默认使用固定过期模式。
 - API 和 iOS 客户端当前通过 JSON Body 传输 Refresh Token，iOS 使用 Keychain 保存。
 - 浏览器 HttpOnly Cookie、CSRF、CORS、`Secure` 和 `SameSite` 基线由 ADR-0019 定义；当前 JSON 契约仍未启用 Cookie 模式。

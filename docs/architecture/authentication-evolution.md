@@ -31,7 +31,7 @@ Authentication Session 与 SQLAlchemy `Session` 不同。后者负责 ORM 对象
 
 JWT 是一种带签名的 Token 格式。签名用于验证 Token 是否由可信服务签发、内容是否被篡改；JWT Payload 默认可以被读取，不提供加密能力。
 
-当前项目的 Access Token 包含 `sub`、`type`、`iat` 和 `exp`。其中 `sub` 表示本地 User ID。
+当前项目的 Access Token 包含 `sub`、`sid`、`type`、`iat` 和 `exp`。其中 `sub` 表示本地 User ID，`sid` 表示签发 Token 的当前 Redis Session；普通业务 API 默认只使用用户身份，敏感 Session 管理接口会使用 `sid` 二次验证登录状态。
 
 ## 3. 认证方案演进
 
