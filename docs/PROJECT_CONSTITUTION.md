@@ -166,14 +166,15 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint2 (Completed)
-Current Story: Sprint 2 Review Complete
+Current Sprint: Sprint3 (Planning)
+Current Story: Story 3.0 Storage Evolution & System Map
 Current Goal:
-  - Preserve Session and Identity Management Decisions
-  - Prepare for Sprint 3 Storage
+  - Understand Storage Evolution and Object Storage Boundaries
+  - Confirm Sprint 3 Architecture and Learning Order
 
 In Progress:
-  - Sprint Transition
+  - Storage and Resource Management Planning
+  - Storage Architecture Learning
 
 Not Started:
   - AI Chat

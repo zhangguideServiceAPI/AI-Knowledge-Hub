@@ -92,6 +92,8 @@ AI 生成
 6. 记录关键决策、踩坑、学习收获和明确的技术债。
 7. 每个 Story 验收完成后立即创建一次 Git Commit；Commit 信息必须写明对应 Story 和主要范围，不能把已完成 Story 的修改继续积压到后续 Story。
 8. 整个 Sprint 验收完成后先创建 Sprint 收尾 Commit，再按仓库现有 `sprint<number>` 规则创建对应 Tag，例如 Sprint 2 使用 `sprint2`；Story 完成时不单独打 Tag。
+9. 每个 Story 完成时同步 1 至 3 道与真实实现直接相关的高频面试题，记录简答、深入回答、项目证据、常见追问和掌握状态。
+10. Sprint Review 必须复查本阶段面试题，明确哪些已经能独立口述、画图或现场实现；不能把面试题整理集中拖到项目结束后突击完成。
 
 Story Commit 与 Sprint Tag 都必须在测试、静态检查、代码 Review 和文档同步完成后执行，不能用 Git 标记代替验收。
 
@@ -127,3 +129,5 @@ Story Commit 与 Sprint Tag 都必须在测试、静态检查、代码 Review �
 - 相关源码和测试
 
 长期技术决策记录在 Project Constitution 和 ADR；日常协作方式记录在本文件；Story 进度、验收结果和阶段总结记录在 Sprint 文档。
+
+跨 Sprint 面试题与项目证据统一记录在 `docs/interview/AI-Agent-Engineer-100.md`。
