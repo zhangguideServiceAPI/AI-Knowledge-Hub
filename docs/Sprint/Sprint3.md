@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 和 Story 3.1 已完成（2026-08-02）；Story 3.2 尚未开始。
+Story 3.0、Story 3.1 和 Story 3.2 已完成（2026-08-03）；Story 3.3 尚未开始。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.2 Resource Domain, API & Consistency Design
-Current Goal: Design file metadata, API contracts and cross-system consistency
-Current Step: Confirm the full resource model before creating Model or Provider code
+Current Story: Story 3.3 StorageProvider & LocalStorage
+Current Goal: Build the local Provider behind the accepted storage boundary
+Current Step: Review the Provider contract, LocalStorage location and failure semantics
 ```
 
 ## Sprint 定位
@@ -428,6 +428,16 @@ Story 3.2 必须明确：
 - `docs/architecture/storage-flow.md`
 - ADR-0022：为什么抽象 StorageProvider。
 - ADR-0023：Metadata 与对象存储一致性策略。
+
+### 验收记录
+
+- [x] 定义 UUID File Resource、Owner-only 规则、对外 Response 与内部 Metadata 边界。
+- [x] 定义五个 API 的成功结果、分页和主要错误语义。
+- [x] 定义 `PENDING_UPLOAD -> READY -> DELETING -> DELETED` 主状态机与失败状态。
+- [x] 定义 MySQL 与对象存储没有共享事务时的补偿策略。
+- [x] 定义安全日志字段、权限策略和测试矩阵。
+- [x] 新增 File Resource、Storage Flow、ADR-0022 和 ADR-0023 文档。
+- [x] 同步 Sprint 3 第 3、4 道面试题。
 
 ### 完成标准
 
