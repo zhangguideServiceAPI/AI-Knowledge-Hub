@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0、Story 3.1 和 Story 3.2 已完成（2026-08-03）；Story 3.3 尚未开始。
+Story 3.0 至 Story 3.3 已完成（2026-08-03）；当前进入 Story 3.4。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.3 StorageProvider & LocalStorage
-Current Goal: Build the local Provider behind the accepted storage boundary
-Current Step: Review the Provider contract, LocalStorage location and failure semantics
+Current Story: Story 3.4 File Metadata & Repository
+Current Goal: Model the business metadata that points to stored objects
+Current Step: Review the File Resource fields, states, indexes and repository boundary
 ```
 
 ## Sprint 定位
@@ -473,6 +473,19 @@ Story 3.2 必须明确：
 - Provider 接口和 Local 实现。
 - Provider Unit Test。
 - Storage Config 与 `.env.example`。
+
+### 验收记录
+
+- [x] 使用最小 `StorageProvider` Protocol 固化 `put/open/delete/exists` 能力边界。
+- [x] 使用服务端 `object_key` 和 Storage Root 约束阻止绝对路径及 `..` 路径越界。
+- [x] 使用同目录临时文件与 `os.replace()` 完成原子落盘，失败时清理临时文件。
+- [x] 将缺失对象和底层文件系统错误转换为稳定的 Provider 异常。
+- [x] 验证删除幂等、读取失败保留旧对象、无临时文件残留和非法 Chunk Size。
+- [x] 增加 Local Provider、Root、最大上传大小和 Chunk Size 配置及测试。
+- [x] 同步 Sprint 3 第 5 道面试题。
+
+实际上传字节是否超过 `MAX_UPLOAD_SIZE_BYTES` 由 Story 3.5 的 FileService 在流中累计验证，
+不放入只负责对象读写的 Provider。
 
 ### 完成标准
 

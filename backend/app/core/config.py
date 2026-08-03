@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, Literal, Self
 
 from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, model_validator
@@ -53,6 +54,11 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
+    STORAGE_PROVIDER: Literal["local"] = "local"
+    STORAGE_LOCAL_ROOT: Path = Path("./data/storage")
+    MAX_UPLOAD_SIZE_BYTES: PositiveInt = 20 * 1024 * 1024
+    UPLOAD_CHUNK_SIZE_BYTES: PositiveInt = 1024 * 1024
+
     @model_validator(mode="after")
     def validate_session_expiration(self) -> Self:
         if (
@@ -70,6 +76,16 @@ class Settings(BaseSettings):
     def validate_jwt_key_ring(self) -> Self:
         if self.JWT_ACTIVE_KEY_ID not in self.JWT_SIGNING_KEYS:
             raise ValueError("JWT_ACTIVE_KEY_ID must exist in JWT_SIGNING_KEYS.")
+
+        return self
+
+    @model_validator(mode="after")
+    def chunk_upload_config(self) -> Self:
+        if self.UPLOAD_CHUNK_SIZE_BYTES > self.MAX_UPLOAD_SIZE_BYTES:
+            raise ValueError(
+                "UPLOAD_CHUNK_SIZE_BYTES must be less than or equal to "
+                "MAX_UPLOAD_SIZE_BYTES."
+            )
 
         return self
 
