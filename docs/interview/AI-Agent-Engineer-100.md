@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：4 / 100
+正式完整答案：5 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：4 / 8，Story 3.0、3.1 和 3.2 已同步
+Sprint 3 面试答案：5 / 8，Story 3.0 至 3.3 已同步
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -108,8 +108,8 @@ Sprint 2 的完整答案应引用认证流程、Session Architecture、Refresh T
 1. Block、File 和 Object Storage 有什么区别，AI 平台为什么通常使用对象存储？
 2. FastAPI `UploadFile` 和直接接收 `bytes` 有什么区别，如何避免大文件占满内存？
 3. 为什么数据库只保存 File Metadata，而不保存大文件内容？
-4. 为什么需要 `StorageProvider` 抽象，怎样避免为未来 Provider 过度设计？
-5. MySQL 与对象存储无法共享事务时，如何处理孤儿对象和失败补偿？
+4. MySQL 与对象存储无法共享事务时，如何处理孤儿对象和失败补偿？
+5. 为什么需要 `StorageProvider` 抽象，怎样避免为未来 Provider 过度设计？
 6. 如何防御路径穿越、伪造 MIME、超大文件和恶意文件名？
 7. StreamingResponse、后端代理下载和 Signed URL 分别适合什么场景？
 8. 如何设计 Owner-only 文件权限、删除状态和真实 MinIO 集成测试？
@@ -132,7 +132,7 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 - Story 3.0 的资源链路和存储类型对比见 `docs/architecture/storage-evolution.md`。
 - ADR-0021 已确定 LocalStorage 用于快速开发和 Unit Test，MinIO 用于真实 S3-compatible 集成验证。
-- 当前项目尚未实现 StorageProvider、上传 API 或 MinIO；以上是已接受的设计边界，不应描述为已经运行的业务能力。
+- 当前已实现最小 StorageProvider 与 LocalStorage；上传 API 和 MinIO 仍属于后续 Story，不能描述为已经运行的业务能力。
 
 **为什么没有采用其他方案**
 
@@ -155,7 +155,8 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 **掌握状态**
 
 `理解`：已完成（2026-08-02）。
-`能讲 / 能画 / 能写`：待后续 Story 结合实际 Provider 和测试验证。
+`能写`：已通过 LocalStorage Provider 和路径安全测试验证（2026-08-03）。
+`能讲 / 能画`：待完整上传、下载与 MinIO 链路验证。
 
 ### Q2. FastAPI `UploadFile` 和直接接收 `bytes` 有什么区别，如何避免大文件占满内存？
 
@@ -172,7 +173,7 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 **项目中的设计或代码证据**
 
 - Story 3.1 的 Multipart、`UploadFile`、Chunk、临时磁盘、类型安全和测试约束见 `docs/architecture/storage-architecture.md`。
-- 当前尚未创建正式 Upload API 或生产 Upload Helper；配置字段、业务异常和接口响应将在 Story 3.2 设计后实现。
+- 当前已加入上传大小与 Chunk Size 配置；正式 Upload API、流内计数和业务异常将在 Story 3.5 实现。
 
 **为什么没有采用其他方案**
 
@@ -275,7 +276,54 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 **掌握状态**
 
 `理解`：已完成（2026-08-03）。
-`能讲 / 能画 / 能写`：待真实失败路径测试后验证。
+`能讲 / 能画 / 能写`：待 Repository、Service 和真实跨系统失败路径测试后验证。
+
+### Q5. 为什么需要 `StorageProvider` 抽象，怎样避免为未来 Provider 过度设计？
+
+**30 秒简答**
+
+业务层只依赖保存、打开、删除和存在性检查这四项稳定能力，不应直接依赖本地路径或 MinIO SDK。项目使用最小 `Protocol` 定义结构化契约，并用 LocalStorage 实现和测试验证它；只有出现真实业务需求时才增加能力，避免提前抽象 Bucket 管理、分片上传或厂商特有参数。
+
+**2 分钟完整回答**
+
+如果 FileService 直接调用 `Path.open()`，以后切换 MinIO 时就必须修改上传、下载和删除业务流程；如果它直接接收 MinIO Client，又会把 Endpoint、Bucket 和 SDK 异常传播到业务层。StorageProvider 把这些实现细节隔离在适配层，对业务只暴露基于 `object_key` 的 `put/open/delete/exists`。
+
+项目选择 Python `Protocol`，因为当前只需要描述调用方依赖的结构，不需要共享状态或强制继承。LocalStorageProvider 通过相同方法自然满足协议。它将 Storage Root、临时文件和真实路径隐藏起来，把路径越界转换成 `InvalidObjectKeyError`，把底层 I/O 错误转换成 `StorageOperationError`，并把缺失对象转换成 `StorageObjectNotFoundError`。
+
+本地写入先在目标目录创建临时文件，按 Chunk 复制数据，全部完成后使用 `os.replace()` 原子替换正式对象。如果读取或写入中断，临时文件会被清理，原有正式对象保持不变。删除使用幂等语义，因此重复删除不会让上层补偿流程产生额外失败。
+
+**项目中的设计或代码证据**
+
+- `backend/app/storage/provider.py` 定义了四个最小 Provider 方法。
+- `backend/app/storage/local.py` 实现了根目录约束、分块读写、原子替换和统一异常。
+- `backend/tests/test_local_storage_provider.py` 验证成功读写、路径越界、缺失对象、幂等删除、写入中断和构造失败。
+- ADR-0022 记录了 Provider 边界及暂不增加厂商特有能力的原因。
+
+**为什么没有采用其他方案**
+
+- 不让 Router 或 FileService 直接拼接本地路径。
+- 不让业务层直接依赖 MinIO SDK 的类型、异常或配置。
+- 当前不增加 Bucket 创建、Signed URL、分片上传等能力；它们将在真实调用方出现后评估。
+- 当前不用复杂继承树；没有共享实现和生命周期状态需要 ABC 基类承载。
+
+**常见追问**
+
+- Python `Protocol` 与 ABC 有什么区别？
+- 为什么临时文件必须和目标文件位于同一文件系统？
+- `os.replace()` 解决了什么问题，是否等同于数据库事务？
+- 为什么 Provider 不负责检查用户权限和上传大小？
+
+**容易说错的地方**
+
+- 原子替换只能保证单个本地文件不会对外暴露半成品，不保证 MySQL 与对象存储的一致性。
+- `object_key` 是 Provider 内部定位符，不是客户端资源 ID，也不是授权凭据。
+- Provider 负责对象能力和错误归一化；Owner 权限、业务大小限制和补偿编排属于 FileService。
+
+**掌握状态**
+
+`理解 / 能写`：已完成（2026-08-03）。
+`能讲`：待不看文档口述验证。
+`能画`：待完整 FileService 与 MinIO 调用链完成后验证。
 
 ## Sprint 4: AI Gateway
 

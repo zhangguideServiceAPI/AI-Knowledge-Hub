@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -211,3 +213,38 @@ def test_settings_rejects_invalid_jwt_key_ids(
 
     assert ("JWT_ACTIVE_KEY_ID",) in validation_locations
     assert any(location[0] == "JWT_SIGNING_KEYS" for location in validation_locations)
+
+
+def test_settings_loads_storage_config() -> None:
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        STORAGE_PROVIDER="local",
+        STORAGE_LOCAL_ROOT=Path("/tmp/storage"),
+        MAX_UPLOAD_SIZE_BYTES=10 * 1024 * 1024,
+        UPLOAD_CHUNK_SIZE_BYTES=512 * 1024,
+    )
+
+    assert settings.STORAGE_PROVIDER == "local"
+    assert settings.STORAGE_LOCAL_ROOT == Path("/tmp/storage")
+    assert settings.MAX_UPLOAD_SIZE_BYTES == 10 * 1024 * 1024
+    assert settings.UPLOAD_CHUNK_SIZE_BYTES == 512 * 1024
+
+
+def test_settings_rejects_chunk_size_above_upload_limit() -> None:
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            STORAGE_PROVIDER="local",
+            MAX_UPLOAD_SIZE_BYTES=1024 * 1024,
+            UPLOAD_CHUNK_SIZE_BYTES=2 * 1024 * 1024,
+        )
+
+    validation_error = error.value.errors()[0]
+
+    assert validation_error["loc"] == ()
+    assert (
+        "UPLOAD_CHUNK_SIZE_BYTES must be less than or equal to MAX_UPLOAD_SIZE_BYTES"
+        in validation_error["msg"]
+    )
