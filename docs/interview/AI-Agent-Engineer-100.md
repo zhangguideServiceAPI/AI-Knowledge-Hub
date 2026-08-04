@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：5 / 8，Story 3.0 至 3.3 已同步
+Sprint 3 面试答案：5 / 8，Story 3.0 至 3.4 已同步
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -214,7 +214,9 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 
 - File Resource 字段、响应边界和数据库约束见 `docs/architecture/file-resource-design.md`。
 - Storage Evolution 和 ADR-0021 解释了 LocalStorage、MinIO 与 MySQL 的职责分离。
-- 当前是已接受设计，Metadata Model 和 Migration 在 Story 3.4 实现。
+- `backend/app/models/file_resource.py` 和 `578d92bbd61c_create_files_table.py` 已实现 Metadata 表、外键、约束和索引。
+- `FileRepository` 已实现 Owner-only、`READY`、软删除过滤、分页排序和状态更新，且不自行提交事务。
+- File Response Schema 与测试证明 API Model 不返回 Owner、Object Key、SHA-256 和失败清理字段。
 
 **为什么没有采用其他方案**
 
@@ -235,8 +237,8 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 
 **掌握状态**
 
-`理解`：已完成（2026-08-03）。
-`能讲 / 能画 / 能写`：待 Model、Repository 和 API 实现后验证。
+`理解 / 能写`：已通过 Model、Migration、Repository、Schema 和测试验证（2026-08-04）。
+`能讲 / 能画`：待完整上传、下载和删除链路验证。
 
 ### Q4. MySQL 与对象存储不能共享事务时，如何处理孤儿对象和失败补偿？
 
