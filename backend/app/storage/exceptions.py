@@ -12,3 +12,27 @@ class StorageObjectNotFoundError(StorageError):
 
 class StorageOperationError(StorageError):
     """底层文件系统或 Provider 操作失败."""
+
+
+class InvalidFileNameError(Exception):
+    """文件展示名称不符合上传规则，对外映射为 400."""
+
+
+class EmptyFileError(Exception):
+    """上传内容为空，对外映射为 400."""
+
+
+class FileTooLargeError(Exception):
+    """实际上传字节超过大小限制，对外映射为 413."""
+
+
+class UnsupportedFileTypeError(Exception):
+    """MIME、扩展名或文件签名不符合策略，对外映射为 415."""
+
+
+class StorageUnavailableError(Exception):
+    """Provider 暂时不可用，对外映射为 503."""
+
+
+class FileUploadFailedError(Exception):
+    """数据库提交或补偿流程发生内部故障，对外映射为 500."""

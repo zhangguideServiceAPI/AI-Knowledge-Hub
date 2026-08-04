@@ -13,6 +13,14 @@ from app.core.exceptions import (
 )
 from app.core.logging import logger
 from app.schemas.error import ErrorResponse
+from app.storage.exceptions import (
+    EmptyFileError,
+    FileTooLargeError,
+    FileUploadFailedError,
+    InvalidFileNameError,
+    StorageUnavailableError,
+    UnsupportedFileTypeError,
+)
 
 
 async def email_already_registered_handler(
@@ -127,6 +135,71 @@ async def user_session_not_found_handler(
     )
 
 
+async def invalid_upload_metadata_handler(
+    _request: Request,
+    _error: InvalidFileNameError | EmptyFileError,
+) -> JSONResponse:
+    response = ErrorResponse(detail="Invalid upload metadata.")
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content=response.model_dump(),
+    )
+
+
+async def file_too_large_handler(
+    _request: Request,
+    _error: FileTooLargeError,
+) -> JSONResponse:
+    response = ErrorResponse(detail="Uploaded file is too large.")
+    return JSONResponse(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        content=response.model_dump(),
+    )
+
+
+async def unsupported_file_type_handler(
+    _request: Request,
+    _error: UnsupportedFileTypeError,
+) -> JSONResponse:
+    response = ErrorResponse(detail="Unsupported file type.")
+    return JSONResponse(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        content=response.model_dump(),
+    )
+
+
+async def storage_unavailable_handler(
+    request: Request,
+    _error: StorageUnavailableError,
+) -> JSONResponse:
+    logger.error(
+        "storage.upload.unavailable method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="File storage is temporarily unavailable.")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
+    )
+
+
+async def file_upload_failed_handler(
+    request: Request,
+    _error: FileUploadFailedError,
+) -> JSONResponse:
+    logger.error(
+        "storage.upload.failed method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="File upload failed.")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response.model_dump(),
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         EmailAlreadyRegisteredError,
@@ -160,3 +233,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         UserSessionNotFoundError,
         user_session_not_found_handler,
     )
+    app.add_exception_handler(InvalidFileNameError, invalid_upload_metadata_handler)
+    app.add_exception_handler(EmptyFileError, invalid_upload_metadata_handler)
+    app.add_exception_handler(FileTooLargeError, file_too_large_handler)
+    app.add_exception_handler(UnsupportedFileTypeError, unsupported_file_type_handler)
+    app.add_exception_handler(StorageUnavailableError, storage_unavailable_handler)
+    app.add_exception_handler(FileUploadFailedError, file_upload_failed_handler)
