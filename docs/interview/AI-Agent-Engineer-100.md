@@ -132,7 +132,7 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 - Story 3.0 的资源链路和存储类型对比见 `docs/architecture/storage-evolution.md`。
 - ADR-0021 已确定 LocalStorage 用于快速开发和 Unit Test，MinIO 用于真实 S3-compatible 集成验证。
-- 当前已实现最小 StorageProvider 与 LocalStorage；上传 API 和 MinIO 仍属于后续 Story，不能描述为已经运行的业务能力。
+- 当前已实现 LocalStorage 与 MinIO 两种 Provider、配置 Factory、真实 HTTP 生命周期测试和 Bucket Readiness。
 
 **为什么没有采用其他方案**
 
@@ -156,7 +156,7 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 `理解`：已完成（2026-08-02）。
 `能写`：已通过 LocalStorage Provider 和路径安全测试验证（2026-08-03）。
-`能讲 / 能画`：待完整上传、下载与 MinIO 链路验证。
+`能讲 / 能画`：已通过完整上传、下载与真实 MinIO 链路验证（2026-08-05）。
 
 ### Q2. FastAPI `UploadFile` 和直接接收 `bytes` 有什么区别，如何避免大文件占满内存？
 
@@ -298,7 +298,10 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 
 - `backend/app/storage/provider.py` 定义了四个最小 Provider 方法。
 - `backend/app/storage/local.py` 实现了根目录约束、分块读写、原子替换和统一异常。
+- `backend/app/storage/minio.py` 使用 S3-compatible API 实现同一最小契约，并统一 SDK 异常。
+- `backend/app/storage/factory.py` 根据 Settings 切换 Provider，并复用 boto3 Client 与连接池。
 - `backend/tests/test_local_storage_provider.py` 验证成功读写、路径越界、缺失对象、幂等删除、写入中断和构造失败。
+- 真实 MinIO Integration Test 验证完整生命周期、错误凭据和不存在 Bucket。
 - ADR-0022 记录了 Provider 边界及暂不增加厂商特有能力的原因。
 
 **为什么没有采用其他方案**
@@ -325,7 +328,7 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 
 `理解 / 能写`：已完成（2026-08-03）。
 `能讲`：待不看文档口述验证。
-`能画`：待完整 FileService 与 MinIO 调用链完成后验证。
+`能画`：已通过 FileService 与真实 MinIO 调用链验证（2026-08-05）。
 
 ### Q6. 如何防御路径穿越、伪造 MIME、超大文件和恶意文件名？
 
@@ -381,9 +384,9 @@ StreamingResponse 让后端边读边返回，适合 LocalStorage、细粒度审�
 
 **2 分钟完整回答**
 
-项目当前 LocalStorage 使用后端代理下载。FileService 先按 `file_id + owner_id + READY` 查询 Metadata，再打开内部 Object Key，返回结构化 `FileDownload`。Router 使用 StreamingResponse 按配置 Chunk 读取，设置 MIME、Content-Length 和经过编码的 Content-Disposition，并在响应完成或异常时关闭文件流。这样不会一次读取完整 PDF，也不会暴露本地路径。
+项目当前 LocalStorage 与 MinIO 都使用后端代理下载。FileService 先按 `file_id + owner_id + READY` 查询 Metadata，再打开内部 Object Key，返回结构化 `FileDownload`。Router 使用 StreamingResponse 按配置 Chunk 读取，设置 MIME、Content-Length 和经过编码的 Content-Disposition，并在响应完成或异常时关闭文件流或 MinIO `StreamingBody`。这样不会一次读取完整 PDF，也不会暴露本地路径、Bucket 或 Object Key。
 
-代理下载的代价是 FastAPI 实例承担连接和带宽。未来接入 MinIO 后，大文件或高并发下载可以在权限验证后签发短 TTL Presigned URL，让流量直接进入对象存储。URL 在有效期内可被持有者使用，因此不能记录到日志、不能使用过长 TTL，也不能跳过 owner 和状态检查。
+代理下载的代价是 FastAPI 实例承担连接和带宽。未来当大文件或高并发数据证明代理流成为瓶颈后，可以在权限验证后签发短 TTL Presigned URL，让流量直接进入对象存储。URL 在有效期内可被持有者使用，因此不能记录到日志、不能使用过长 TTL，也不能跳过 owner 和状态检查。
 
 **项目中的设计或代码证据**
 
@@ -391,7 +394,8 @@ StreamingResponse 让后端边读边返回，适合 LocalStorage、细粒度审�
 - `FileDownload` 传递流和安全 Metadata，不泄露 Object Key。
 - `GET /files/{file_id}/download` 使用分块 StreamingResponse，并编码下载文件名。
 - API Test 验证分块读取、Content-Disposition、Content-Length 和流关闭。
-- ADR-0024 记录 Local 代理流与未来 MinIO Signed URL 的边界。
+- 真实 MinIO HTTP 测试验证同一代理流可读取 `StreamingBody` 并完成资源删除。
+- ADR-0024 记录 Local/MinIO 当前代理流与未来 Signed URL 的边界。
 
 **为什么没有采用其他方案**
 
@@ -416,7 +420,7 @@ StreamingResponse 让后端边读边返回，适合 LocalStorage、细粒度审�
 **掌握状态**
 
 `理解 / 能写`：已完成（2026-08-04）。
-`能讲 / 能画`：待结合 MinIO 对比演练。
+`能讲 / 能画`：已结合真实 MinIO 代理流完成对比验证（2026-08-05）。
 
 ## Sprint 4: AI Gateway
 

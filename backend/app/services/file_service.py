@@ -45,6 +45,7 @@ class FileService:
         session: Session,
         storage_provider: StorageProvider,
         *,
+        storage_provider_name: str,
         bucket: str,
         max_upload_size: int,
         chunk_size: int,
@@ -52,6 +53,7 @@ class FileService:
         self._session = session
         self._repository = FileRepository(session)
         self._storage_provider = storage_provider
+        self._storage_provider_name = storage_provider_name
         self._bucket = bucket
         self._max_upload_size = max_upload_size
         self._chunk_size = chunk_size
@@ -91,7 +93,7 @@ class FileService:
         resource = FileResource(
             id=file_id,
             owner_id=owner_id,
-            storage_provider="local",
+            storage_provider=self._storage_provider_name,
             bucket=self._bucket,
             object_key=object_key,
             original_filename=inspected.original_filename,
