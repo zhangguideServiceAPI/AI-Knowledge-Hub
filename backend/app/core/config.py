@@ -1,7 +1,14 @@
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, model_validator
+from pydantic import (
+    AnyHttpUrl,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    SecretStr,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 JwtKeyId = Annotated[
@@ -54,8 +61,23 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
-    STORAGE_PROVIDER: Literal["local"] = "local"
+    STORAGE_PROVIDER: Literal["local", "minio"] = "local"
     STORAGE_LOCAL_ROOT: Path = Path("./data/storage")
+    STORAGE_MINIO_ENDPOINT: AnyHttpUrl | None = None
+    STORAGE_MINIO_ACCESS_KEY: str | None = Field(
+        default=None,
+        min_length=3,
+    )
+    STORAGE_MINIO_SECRET_KEY: SecretStr | None = Field(
+        default=None,
+        min_length=8,
+    )
+    STORAGE_MINIO_BUCKET: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=63,
+        pattern=r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$",
+    )
     MAX_UPLOAD_SIZE_BYTES: PositiveInt = 20 * 1024 * 1024
     UPLOAD_CHUNK_SIZE_BYTES: PositiveInt = 1024 * 1024
 
@@ -86,6 +108,26 @@ class Settings(BaseSettings):
                 "UPLOAD_CHUNK_SIZE_BYTES must be less than or equal to "
                 "MAX_UPLOAD_SIZE_BYTES."
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_minio_config(self) -> Self:
+        if self.STORAGE_PROVIDER != "minio":
+            return self
+
+        required_fields = {
+            "STORAGE_MINIO_ENDPOINT": self.STORAGE_MINIO_ENDPOINT,
+            "STORAGE_MINIO_ACCESS_KEY": self.STORAGE_MINIO_ACCESS_KEY,
+            "STORAGE_MINIO_SECRET_KEY": self.STORAGE_MINIO_SECRET_KEY,
+            "STORAGE_MINIO_BUCKET": self.STORAGE_MINIO_BUCKET,
+        }
+        missing_fields = [
+            field_name for field_name, value in required_fields.items() if value is None
+        ]
+
+        if missing_fields:
+            raise ValueError("MinIO storage requires: " + ", ".join(missing_fields))
 
         return self
 

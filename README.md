@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 3 - Storage & Resource Management 规划中**
+当前阶段：**Sprint 3 - Storage & Resource Management，Story 3.8 收尾中**
 
 已经完成：
 
@@ -35,8 +35,12 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - JWT `kid`、Active Key 与 Key Ring 密钥轮换
 - Register、Login、Refresh、Replay、Logout 和 Redis 故障的安全事件日志
 - 多设备 Session 列表、当前设备识别、单设备撤销和全部设备登出
+- File Resource Metadata、Owner-only 权限、上传、列表、代理下载和幂等删除
+- LocalStorage 与 MinIO 两种可配置 Storage Provider
+- MinIO 最小权限应用账号、Named Volume、一次性 Bucket 初始化和真实集成测试
+- MySQL、Redis 与条件化 Storage Readiness
 
-Sprint 2 Session & Identity Management 已完成。Sprint 3 学习计划已同步，下一步从 Storage Evolution 与系统总图开始，随后进入 HTTP Streaming、StorageProvider、File Metadata、上传安全、下载权限和真实 MinIO 验证。
+Sprint 2 Session & Identity Management 已完成。Sprint 3 Story 3.0 至 3.7 已完成，当前进行资源生命周期、可观测性、架构边界和 Sprint 验收 Review。
 
 ## 技术栈
 
@@ -48,6 +52,8 @@ Sprint 2 Session & Identity Management 已完成。Sprint 3 学习计划已同�
 - Alembic
 - MySQL 8.4
 - Redis 7.4
+- MinIO
+- boto3
 - Docker / Docker Compose
 - pytest
 
@@ -64,6 +70,7 @@ AI-Knowledge-Hub/
 │   │   ├── db/
 │   │   ├── models/
 │   │   ├── schemas/
+│   │   ├── storage/
 │   │   └── services/
 │   ├── alembic/
 │   ├── tests/
@@ -96,7 +103,8 @@ cp infra/.env.example infra/.env
 ```
 
 示例密码只用于本地开发。使用 `openssl rand -hex 32` 分别生成 JWT
-签名密钥和 `REDIS_PASSWORD`。在 `backend/.env` 中设置
+签名密钥、`REDIS_PASSWORD` 和 MinIO 应用 Secret。MinIO Root 凭据只写入
+`infra/.env`，应用 Access Key 与 Secret Key 只写入 `backend/.env`。在 `backend/.env` 中设置
 `JWT_ACTIVE_KEY_ID=v1`，并将签名密钥写入
 `JWT_SIGNING_KEYS={"v1":"<generated-secret>"}`。禁止提交真实 `.env` 文件。
 
@@ -108,14 +116,24 @@ uv sync --dev
 cd ..
 ```
 
-### 3. 启动 MySQL 和 Redis
+### 3. 启动 MySQL、Redis 和 MinIO
 
 ```bash
 docker compose \
   --env-file backend/.env \
   --env-file infra/.env \
   -f infra/compose.dev.yaml \
-  up -d --wait mysql redis
+  up -d --wait mysql redis minio
+```
+
+使用一次性 MinIO Client 容器创建 Bucket、应用账号和最小权限 Policy：
+
+```bash
+docker compose \
+  --env-file backend/.env \
+  --env-file infra/.env \
+  -f infra/compose.dev.yaml \
+  up minio-init
 ```
 
 ### 4. 执行数据库迁移
@@ -156,7 +174,7 @@ curl http://127.0.0.1:8000/health/ready
 ```
 
 ```json
-{"status":"ready","database":"ok","redis":"ok"}
+{"status":"ready","database":"ok","redis":"ok","storage":"ok"}
 ```
 
 ## 测试
@@ -173,6 +191,12 @@ uv run pytest -q
 RUN_REDIS_INTEGRATION_TESTS=1 uv run pytest -m integration -q
 ```
 
+MinIO 已启动时显式运行真实对象存储测试：
+
+```bash
+RUN_MINIO_INTEGRATION_TESTS=1 uv run pytest -m integration -q
+```
+
 ## 停止本地服务
 
 在项目根目录执行：
@@ -185,7 +209,7 @@ docker compose \
   down
 ```
 
-普通 `down` 会保留 MySQL 和 Redis 的 Named Volume。只有明确需要删除本地数据时，才使用 `down -v`。
+普通 `down` 会保留 MySQL、Redis 和 MinIO 的 Named Volume。只有明确需要删除本地数据时，才使用 `down -v`。
 
 ## 项目文档
 
@@ -194,7 +218,7 @@ docker compose \
 - [项目愿景](docs/项目愿景.md)
 - [AI 协作规范](docs/AI协作规范.md)
 - [Code Review 规范](docs/CodeReview规范.md)
-- [当前 Sprint](docs/Sprint/Sprint2.md)
+- [当前 Sprint](docs/Sprint/Sprint3.md)
 - [API 规范](docs/API规范.md)
 - [架构决策记录](docs/architecture/adr/)
 

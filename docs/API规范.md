@@ -32,7 +32,8 @@ GET /health/ready
 {
   "status": "ready",
   "database": "ok",
-  "redis": "ok"
+  "redis": "ok",
+  "storage": "ok"
 }
 ```
 
@@ -42,11 +43,12 @@ GET /health/ready
 {
   "status": "not_ready",
   "database": "ok",
-  "redis": "unavailable"
+  "redis": "ok",
+  "storage": "unavailable"
 }
 ```
 
-`database` 和 `redis` 分别报告依赖状态。任一必要依赖不可用时，整体 `status` 为 `not_ready` 并返回 HTTP 503；Liveness 不访问这些依赖。
+`database`、`redis` 和 `storage` 分别报告依赖状态。任一必要依赖不可用时，整体 `status` 为 `not_ready` 并返回 HTTP 503。LocalStorage 模式不访问 MinIO；MinIO 模式使用短超时 `head_bucket()` 检查配置 Bucket。Liveness 不访问这些依赖。
 
 Jenkins 蓝绿发布使用 Readiness 判断新实例是否可以接收流量。未来 Kubernetes 分别使用 Liveness 和 Readiness 探针。
 
