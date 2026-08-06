@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 至 Story 3.4 已完成（2026-08-04）；当前进入 Story 3.5。
+Story 3.0 至 Story 3.3 已完成（2026-08-03）；当前进入 Story 3.4。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.5 Secure Upload Service & API
-Current Goal: Combine HTTP streaming, StorageProvider and File Metadata safely
-Current Step: Review the complete upload orchestration, validation and compensation flow
+Current Story: Story 3.4 File Metadata & Repository
+Current Goal: Model the business metadata that points to stored objects
+Current Step: Review the File Resource fields, states, indexes and repository boundary
 ```
 
 ## Sprint 定位
@@ -521,17 +521,6 @@ Story 3.2 必须明确：
 - Model、Migration、Repository 和测试。
 - Metadata Schema。
 - ADR-0023 最终状态。
-
-### 验收记录
-
-- [x] 创建 UUID `FileResource` Model、生命周期状态和完整 Metadata 字段。
-- [x] 增加 Owner 外键、存储位置联合唯一、SHA-256 普通索引、列表索引和大小检查约束。
-- [x] 生成并人工 Review Alembic Migration，修复 MySQL 外键依赖索引导致的 downgrade 顺序问题。
-- [x] 使用真实 MySQL 完成 Upgrade、Downgrade、再次 Upgrade 和 `alembic check`。
-- [x] 实现 `create/get_owned/list_owned/update_status`，Repository 不提交事务也不访问对象存储。
-- [x] 测试 Owner 隔离、可见状态、软删除、排序、分页、状态更新、回滚和数据库约束。
-- [x] 创建只暴露安全字段的 File Resource 与分页 Response Schema。
-- [x] 更新 Sprint 3 Metadata 面试题的项目证据与掌握状态。
 
 ### 完成标准
 

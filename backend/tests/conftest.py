@@ -4,10 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
-
 
 if os.getenv("RUN_REDIS_INTEGRATION_TESTS") != "1":
     os.environ["REDIS_PASSWORD"] = "test-only-redis-password"
@@ -30,18 +29,6 @@ def session() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-
-    @event.listens_for(engine, "connect")
-    def enable_sqlite_foreign_keys(
-        dbapi_connection,
-        connection_record,
-    ) -> None:
-        del connection_record
-
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
     Base.metadata.create_all(bind=engine)
 
     with Session(bind=engine) as session:
