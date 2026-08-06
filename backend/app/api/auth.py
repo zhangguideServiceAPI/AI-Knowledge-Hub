@@ -8,7 +8,6 @@ from app.db.repositories.session_repository import SessionRepository
 from app.db.session import get_db
 from app.schemas.auth import (
     LoginRequest,
-    LogoutRequest,
     RefreshRequest,
     RegisterRequest,
     TokenPairResponse,
@@ -108,28 +107,3 @@ def refresh(
     ],
 ) -> TokenPairResponse:
     return AuthService(session).refresh(request, session_repository)
-
-
-@router.post(
-    "/logout",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {
-            "model": ErrorResponse,
-            "description": "Invalid or expired refresh token.",
-        },
-        status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "model": ErrorResponse,
-            "description": "Authentication service is temporarily unavailable.",
-        },
-    },
-)
-def logout(
-    request: LogoutRequest,
-    session: Annotated[Session, Depends(get_db)],
-    session_repository: Annotated[
-        SessionRepository,
-        Depends(get_session_repository),
-    ],
-) -> None:
-    AuthService(session).logout(request, session_repository)

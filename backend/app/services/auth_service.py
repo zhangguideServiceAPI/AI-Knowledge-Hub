@@ -35,7 +35,6 @@ from app.db.repositories.user_repository import UserRepository
 from app.models.user import User, UserStatus
 from app.schemas.auth import (
     LoginRequest,
-    LogoutRequest,
     RefreshRequest,
     RegisterRequest,
     TokenPairResponse,
@@ -214,29 +213,4 @@ class AuthService:
                 ttl_seconds,
             ),
             refresh_expires_in=ttl_seconds,
-        )
-
-    def logout(
-        self,
-        request: LogoutRequest,
-        session_repository: SessionRepository,
-    ) -> None:
-        claims = decode_refresh_token(request.refresh_token)
-        session_record = session_repository.get(claims.session_id)
-
-        # Session 已不存在时，服务端已经达到登出状态，重复请求仍视为成功。
-        if session_record is None:
-            return
-
-        if session_record.user_id != claims.user_id:
-            raise InvalidRefreshTokenError()
-
-        if session_record.refresh_token_hash != hash_refresh_token(
-            request.refresh_token
-        ):
-            raise InvalidRefreshTokenError()
-
-        session_repository.delete(
-            user_id=claims.user_id,
-            session_id=claims.session_id,
         )

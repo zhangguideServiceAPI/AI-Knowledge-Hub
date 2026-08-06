@@ -25,8 +25,7 @@ Refresh
   -> 返回新的 Access Token + Refresh Token
 
 Logout
-  -> 验证当前 Refresh Token 与 Redis Session
-  -> 删除 Session Hash 和用户 Session 索引
+  -> 删除 Redis Session
   -> Refresh 立即失效
   -> 已签发的 Access Token 等待自身过期
 ```
@@ -172,21 +171,10 @@ Rotation 保持 `sid` 不变，生成新的 `jti`、Refresh JWT 和 Token Hash�
 
 401 表示当前登录状态不能继续刷新，客户端必须重新登录；503 表示认证依赖暂时不可用，客户端不能把它误判为账号已退出。
 
-## 10. Logout 契约
-
-当前设备 Logout 通过 JSON Body 提交 Refresh Token。后端验证 JWT 后取得 `sub` 和 `sid`，读取 Redis Session，并确认 Session 用户和当前 `refresh_token_hash` 都与提交 Token 一致，然后使用 Repository 事务同时删除 Session Hash 和用户 Session 索引。
-
-- 删除成功返回 HTTP 204，客户端删除本地 Token Pair。
-- Session 已不存在时同样返回 HTTP 204，保证重复 Logout 幂等。
-- JWT 无效、用户不一致或 Hash 不匹配时返回 HTTP 401；Hash 不匹配不能删除 Session，避免旧 Refresh Token 撤销 Rotation 后的当前状态。
-- Redis 无法确认或删除 Session 时返回 HTTP 503，不能假装服务端撤销已经成功。
-- Logout 不依赖 MySQL 账号状态；停用账号仍然可以撤销 Session。
-- Logout 后 Access Token 等待自身过期，当前设计不为普通 API 增加 Redis 查询。
-
-## 11. 后续边界
+## 10. 后续边界
 
 - ADR-0018：已确定使用 Lua 原子 Rotation，并在 Replay 时撤销当前设备 Session。
-- Story 2.4：上述 Logout Service/API 与客户端删除 Token 契约已实现。
+- Story 2.4：Logout Service/API 与客户端删除 Token。
 - Story 2.5：客户端单航班实现和浏览器 Cookie 安全策略。
 - Story 2.6：Secret Rotation、Sliding Session 和完整安全 Review。
 - Sprint 收尾：汇总注册、登录、Refresh 和 Logout 的端到端时序图。

@@ -47,21 +47,13 @@ class TokenResponse(BaseModel):
     expires_in: PositiveInt
 
 
-class RefreshTokenRequest(BaseModel):
+class RefreshRequest(BaseModel):
     """API 或移动端提交 Refresh Token 时使用的请求。"""
 
     refresh_token: str = Field(
         min_length=1,
         max_length=4096,
     )
-
-
-class RefreshRequest(RefreshTokenRequest):
-    """提交 Refresh Token 换取新 Token Pair。"""
-
-
-class LogoutRequest(RefreshTokenRequest):
-    """提交当前 Refresh Token 撤销设备 Session。"""
 
 
 class TokenPairResponse(TokenResponse):

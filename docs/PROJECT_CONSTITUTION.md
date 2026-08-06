@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.5 Client Refresh Contract
+Current Story: Story 2.4 Logout
 Current Goal:
-  - Coordinate a Single Refresh for Concurrent Access 401 Responses
-  - Replace the Token Pair and Retry Each Original Request Once
+  - Revoke the Current Device Session in Redis
+  - Keep Already Issued Access Tokens Naturally Expiring
 
 In Progress:
   - Session and Identity Management
-  - Client Refresh Contract
+  - Current Device Logout
 
 Not Started:
   - AI Chat

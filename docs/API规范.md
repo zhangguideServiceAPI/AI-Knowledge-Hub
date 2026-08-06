@@ -206,27 +206,6 @@ API 和 iOS 客户端当前使用 JSON Body 传输 Refresh Token，iOS 应保存
 
 客户端统一网络层在普通 API 因 Access 认证返回 401 后发起 Refresh。一个客户端同时只允许一个 Refresh 请求；成功后同时替换两个 Token，并只重试原请求一次。Refresh 自身返回 401 时不得再次 Refresh，客户端应清除 Token 并重新登录。
 
-### Logout
-
-```http
-POST /auth/logout
-Content-Type: application/json
-```
-
-请求：
-
-```json
-{
-  "refresh_token": "signed-refresh-jwt"
-}
-```
-
-当前 Refresh Token 与 Redis Session 匹配时，服务端同时删除 Session Hash 和用户 Session 索引成员，返回 HTTP 204 且没有响应 Body。客户端随后删除本地 Access Token 与 Refresh Token。
-
-Session 已经不存在时仍返回 HTTP 204，使重复 Logout 保持幂等。Refresh JWT 无效、已过期、用户与 Session 不一致或 Token Hash 不匹配时返回 HTTP 401；Hash 不匹配时不会删除当前 Session，避免旧 Token 使新 Session 状态被强制登出。Redis 无法完成必要校验或删除时返回 HTTP 503。
-
-Logout 不查询 MySQL 账号状态，停用账号仍允许撤销自己的 Session。已经签发的 Access Token 默认不查询 Redis，因此会继续有效到自身 `exp`，Logout 只会让该 Session 的 Refresh 能力立即失效。
-
 ### Current User
 
 ```http
