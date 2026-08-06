@@ -202,11 +202,9 @@ Refresh JWT 无效、已过期、类型错误、Session 不存在或 Token Hash 
 
 Refresh Token 和 Session 有效但本地账号已停用时返回 HTTP 403，不执行 Rotation。
 
-API 和 iOS 客户端当前使用 JSON Body 传输 Refresh Token，iOS 应保存到 Keychain。当前接口没有启用浏览器 Cookie Refresh；未来浏览器安全基线见 `architecture/client-refresh-contract.md` 和 ADR-0019。
+API 和 iOS 客户端当前使用 JSON Body 传输 Refresh Token，iOS 应保存到 Keychain。浏览器 HttpOnly Cookie、CSRF 和 CORS 契约延后到 Story 2.5。
 
-客户端统一网络层在携带 Access Token 的受保护普通 API 因认证返回 401 后发起 Refresh。一个客户端同时只允许一个共享 Refresh 请求；成功后原子替换两个 Token，并只重试原请求一次。认证接口、403 和已经重试过的请求不触发 Refresh。
-
-Refresh 返回 401 或 403 时客户端应清除本地 Token 并重新登录；返回 503 或发生网络故障时不得误判为登出。Refresh 自身不得再次触发 Refresh。
+客户端统一网络层在普通 API 因 Access 认证返回 401 后发起 Refresh。一个客户端同时只允许一个 Refresh 请求；成功后同时替换两个 Token，并只重试原请求一次。Refresh 自身返回 401 时不得再次 Refresh，客户端应清除 Token 并重新登录。
 
 ### Logout
 

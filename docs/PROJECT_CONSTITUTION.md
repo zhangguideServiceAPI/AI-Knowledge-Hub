@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.6 Authentication Security
+Current Story: Story 2.5 Client Refresh Contract
 Current Goal:
-  - Review Replay, Expiration, Token Storage and Secret Rotation Boundaries
-  - Identify Blocking Security Gaps Before Sprint Testing
+  - Coordinate a Single Refresh for Concurrent Access 401 Responses
+  - Replace the Token Pair and Retry Each Original Request Once
 
 In Progress:
   - Session and Identity Management
-  - Authentication Security Review
+  - Client Refresh Contract
 
 Not Started:
   - AI Chat
