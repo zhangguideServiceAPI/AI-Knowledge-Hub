@@ -5,9 +5,9 @@
 进行中（2026-07-23）。
 
 ```text
-Current Story: Story 2.9 User Session Design
-Current Goal: Design multi-device session visibility and management
-Current Step: Define session list, current-device and revocation contracts
+Current Story: Story 2.8 Observability
+Current Goal: Define authentication event logging without exposing credentials
+Current Step: Classify INFO, WARNING and ERROR authentication events
 ```
 
 ## Sprint 目标
@@ -94,11 +94,10 @@ Logout
 
 Sprint 收尾
   [完成] 认证测试矩阵与真实 Redis 纵向集成测试
-  [完成] 认证事件日志、敏感数据边界和日志洪泛边界
-  [待完成] 用户 Session 设计、注册登录全流程图和 Sprint Review
+  [待完成] 可观测性、用户 Session 设计、注册登录全流程图和 Sprint Review
 ```
 
-当前学习位置：Story 2.8 Observability 已完成。现在进入 Story 2.9 User Session Design，设计多设备 Session 的查看、当前设备识别和撤销契约，暂不实现接口。
+当前学习位置：Story 2.7 Testing 已完成。现在进入 Story 2.8 Observability，为已经验证的 Login、Refresh、Replay 和 Logout 流程增加安全事件日志与敏感数据边界。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -223,12 +222,7 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 已完成（2026-07-30）：纵向验证 R1 Rotation 得到 R2 后重用 R1 会撤销当前 Session，R2 随后也无法继续 Refresh。
 - 已完成（2026-07-30）：两条纵向测试连续运行 10 轮通过；完整普通测试 146 项、真实 Redis Integration Test 8 项通过，Ruff 和格式检查通过。
 - Story 2.7 Testing：已完成（2026-07-30）。
-- 已完成（2026-07-30）：为 Register、Login、Refresh、Replay、Logout 和 Redis 故障增加固定认证事件日志，并按业务语义划分 INFO、WARNING 和 ERROR。
-- 已完成（2026-07-30）：使用 `caplog` 验证邮箱、昵称、密码、原始 Token、Token Hash 和完整 Session ID 不进入日志；普通无效 Access Token 不产生 WARNING/ERROR。
-- 已完成（2026-07-30）：扩充 ADR-0005，明确 Service、全局异常 Handler、标准流和未来集中式日志平台的职责边界。
-- 已完成（2026-07-30）：完整普通测试 150 项、真实 Redis Integration Test 8 项通过，Ruff、格式和 Documentation Review 无阻断问题。
-- Story 2.8 Observability：已完成（2026-07-30）。
-- 当前 Story：2.9 User Session Design；当前 Step：设计 Session 列表、当前设备识别和撤销契约。
+- 当前 Story：2.8 Observability；当前 Step：设计认证事件级别、字段和敏感数据边界。
 
 ## North Star
 
@@ -529,10 +523,10 @@ Schema / Config / Security Unit Test
   -> Repository / Service Unit Test with Mock
   -> FastAPI TestClient + SQLite + Redis Mock
   -> Real Redis Repository Integration Test
-  -> HTTP + Service + Real Redis Vertical Integration Test
+  -> HTTP + Service + Real Redis Vertical Integration Test [待补]
 ```
 
-现有测试已经覆盖各层独立行为，并通过两条纵向测试串联 HTTP、Router、AuthService、真实 SessionRepository 和真实 Redis。Story 2.7 使用 SQLite 隔离用户数据，Redis 使用真实服务，从而聚焦当前 Sprint 的 Session 与认证边界；真实 MySQL 方言和 Migration 验证不在这两条 Redis 纵向测试中重复承担。
+现有测试已经覆盖各层独立行为，但还没有一条测试通过 HTTP 请求串联 Router、AuthService、真实 SessionRepository 和真实 Redis。Story 2.7 使用 SQLite 隔离用户数据，Redis 使用真实服务，从而聚焦当前 Sprint 的 Session 与认证边界；真实 MySQL 方言和 Migration 验证不在这两条 Redis 纵向测试中重复承担。
 
 ### 纵向集成测试
 
@@ -557,24 +551,10 @@ Schema / Config / Security Unit Test
 
 ## Story 2.8: Observability
 
-**状态：已完成（2026-07-30）**
-
-### 认证事件矩阵
-
-| 事件 | 级别 | 触发条件 | 安全字段 |
-| --- | --- | --- | --- |
-| `auth.register.success` | INFO | 用户事务已成功提交 | `user_id` |
-| `auth.login.success` | INFO | Session 已成功写入 Redis | `user_id` |
-| `auth.login.rate_limited` | WARNING | 登录尝试被限流器拒绝 | 固定 `reason` |
-| `auth.refresh.success` | INFO | Refresh Token 和 Session 已原子轮换 | `user_id` |
-| `auth.refresh.replay_detected` | WARNING | 旧 Refresh Token Hash 与 Session 不匹配 | `user_id`、固定 `reason` |
-| `auth.refresh.rejected` | WARNING | Session 不存在、用户不匹配或 Session 已过期 | 固定 `reason`，可确认身份时记录 `user_id` |
-| `auth.logout.success` | INFO | Session 已删除，或目标 Session 已不存在 | `user_id`、固定 `result` |
-| `auth.redis.unavailable` | ERROR | Redis 异常到达 HTTP 异常处理边界 | HTTP `method`、`path`、异常类型 |
+**状态：未开始**
 
 ### INFO 日志
 
-- Register Success。
 - Login Success。
 - Refresh Success。
 - Logout。
@@ -589,24 +569,13 @@ Schema / Config / Security Unit Test
 - Redis 不可用。
 - Session 持久化或轮换失败。
 
-日志不得记录密码、邮箱、原始 Access Token、原始 Refresh Token、Refresh Token Hash、完整 Session ID、JWT 密钥或 Redis 密码。拒绝原因和登出结果使用固定内部值，不能直接拼接请求数据或异常消息。
-
 普通无效 Access Token 属于预期认证失败，不默认记录为 ERROR，避免攻击者制造日志洪泛。
 
 本 Story 为 Sprint 9 的 Prometheus 和 Grafana 可观测性建设铺路。
 
-### 完成结果
-
-- AuthService 在最终业务结果明确后记录 Register、Login、Refresh、Replay、Rejected 和 Logout 事件。
-- 全局 RedisError Handler 统一记录 HTTP method、path 和异常类型，不重复记录异常消息。
-- `caplog` 测试覆盖事件名称、日志级别、安全字段和敏感数据排除边界。
-- 普通无效 Access Token 返回 401，但不产生应用 WARNING/ERROR 日志。
-- 完整默认测试 150 项、真实 Redis Integration Test 8 项、Ruff 和格式检查全部通过。
-- Story Review：97/100，无阻断问题；结构化日志、Request ID 和集中式存储留到 Sprint 9。
-
 ## Story 2.9: User Session Design
 
-**状态：进行中（2026-07-30），仅设计，暂不实现接口**
+**状态：仅设计，暂不实现接口**
 
 ### 设计接口
 
