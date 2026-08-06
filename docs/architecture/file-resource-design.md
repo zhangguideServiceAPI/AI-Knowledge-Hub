@@ -69,6 +69,9 @@ stateDiagram-v2
     READY --> DELETING: 用户请求删除
     DELETING --> DELETED: 对象删除成功
     DELETING --> CLEANUP_REQUIRED: 删除失败或结果不确定
+    CLEANUP_REQUIRED --> UPLOAD_FAILED: 上传补偿重试成功
+    CLEANUP_REQUIRED --> DELETED: 删除补偿或缺失对象收尾成功
+    CLEANUP_REQUIRED --> CLEANUP_REQUIRED: Provider 或 Metadata 重试失败
 ```
 
 可见性规则：
@@ -140,4 +143,4 @@ UUID 只是稳定且较难枚举的资源身份，不能替代 `owner_id` 校验
 - 文件共享、组织空间、RBAC、公开链接。
 - 物理去重、引用计数、FileObject 模型。
 - 文档解析、Chunk、Embedding 和 RAG 状态。
-- 异步上传、断点续传、后台自动重试或 Cleanup Worker。
+- 异步上传、断点续传、后台自动重试或 Cleanup Worker；当前只提供可被未来 Worker 复用的同步 Cleanup Service 边界。

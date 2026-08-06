@@ -16,8 +16,9 @@ MySQL Transaction 无法回滚 LocalStorage 或 MinIO 的对象操作。一次�
 - 对象写入超时或报错但结果不确定时，Service 同样尝试删除对象；补偿失败或结果不确定时使用 `CLEANUP_REQUIRED`。
 - 对象已写入但 Metadata 更新失败时，Service 尝试删除对象作为补偿；补偿失败或结果不确定时使用 `CLEANUP_REQUIRED`、安全日志和未来清理边界记录问题。
 - 删除先将 `READY` 资源标记为 `DELETING`，随后删除对象；成功后设置 `DELETED` 与 `deleted_at`，失败时进入 `CLEANUP_REQUIRED`。
+- 提供只处理 `CLEANUP_REQUIRED` 的同步 Cleanup Service 边界。对象删除和 Metadata 更新都成功后进入对应终态；失败时保留可重试状态。
 - 只有 `READY` 且未逻辑删除的资源可被普通用户列表、详情或下载。
-- 当前不实现异步 Cleanup Worker 或自动上传重试；失败上传由客户端重新提交，生成新的 Resource ID 和 Object Key。
+- 当前不实现异步 Cleanup Worker、Scheduler 或自动上传重试；失败上传由客户端重新提交，生成新的 Resource ID 和 Object Key。
 
 ## 原因
 
@@ -30,7 +31,7 @@ MySQL Transaction 无法回滚 LocalStorage 或 MinIO 的对象操作。一次�
 
 - 需要为状态转换、Provider 异常、Repository 异常和补偿路径编写 Unit/API/Integration Test。
 - 资源状态会增加查询过滤和运维排查成本，但使失败可观察、可恢复。
-- `CLEANUP_REQUIRED` 需要未来后台 Worker 或人工运维流程处理；当前日志必须能定位该类事件。
+- `CLEANUP_REQUIRED` 已有可调用且幂等的 Service 清理边界；未来后台 Worker 或人工运维脚本只负责任务发现、调度和重试。
 - 用户看到的是明确上传或删除失败，不会自动复用不确定状态下的旧对象。
 
 ## 未采用方案

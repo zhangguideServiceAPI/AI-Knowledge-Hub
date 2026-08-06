@@ -16,6 +16,8 @@ API -> Service -> Repository / StorageProvider
 - `app/storage/`：Local/MinIO Provider、Factory、上传校验和 Storage Readiness
 - `app/core/`：配置和日志
 
+当前进程只启用 `STORAGE_PROVIDER` 指定的一个 Provider。已有文件时切换 Provider 需要先迁移对象并同步 Metadata；不匹配的下载、删除和 Cleanup 会被拒绝，当前版本不支持 Local 与 MinIO 资源混合在线访问。
+
 ## 依赖管理
 
 项目使用 `uv` 管理依赖，并通过 `uv.lock` 锁定版本。

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.db.repositories.file_repository import FileRepository
-from app.models.file_resource import FileResource, FileStatus
+from app.models.file_resource import FileFailureReason, FileResource, FileStatus
 from app.models.user import User
 
 
@@ -85,6 +85,31 @@ def test_get_owned_only_returns_visible_owner_resource(
     assert repository.get_owned(ready.id, other_user.id) is None
     assert repository.get_owned(pending.id, owner.id) is None
     assert repository.get_owned(logically_deleted.id, owner.id) is None
+
+
+def test_get_cleanup_required_only_returns_matching_status(
+    session: Session,
+) -> None:
+    repository = FileRepository(session)
+    owner = _create_user(session, "cleanup-owner@example.com")
+    cleanup_required = repository.create(
+        _build_resource(
+            owner.id,
+            "users/1/cleanup-required.bin",
+            status=FileStatus.CLEANUP_REQUIRED,
+        )
+    )
+    ready = repository.create(
+        _build_resource(
+            owner.id,
+            "users/1/cleanup-ready.bin",
+            status=FileStatus.READY,
+        )
+    )
+
+    assert repository.get_cleanup_required(cleanup_required.id) == cleanup_required
+    assert repository.get_cleanup_required(ready.id) is None
+    assert repository.get_cleanup_required("missing-file-id") is None
 
 
 def test_list_owned_filters_sorts_and_paginates(
@@ -175,7 +200,7 @@ def test_update_status_persists_failure_reason(
     repository.update_status(
         resource,
         FileStatus.UPLOAD_FAILED,
-        failure_reason="provider_write_failed",
+        failure_reason=FileFailureReason.PROVIDER_WRITE_FAILED.value,
     )
     file_id = resource.id
 
@@ -184,7 +209,7 @@ def test_update_status_persists_failure_reason(
 
     assert persisted is not None
     assert persisted.status == FileStatus.UPLOAD_FAILED.value
-    assert persisted.failure_reason == "provider_write_failed"
+    assert persisted.failure_reason == FileFailureReason.PROVIDER_WRITE_FAILED.value
 
 
 def test_update_status_persists_deleted_at(
