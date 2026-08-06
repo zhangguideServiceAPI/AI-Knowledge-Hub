@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：2 / 100
+正式完整答案：1 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：2 / 8，Story 3.0 和 Story 3.1 各完成 1 道
+Sprint 3 面试答案：1 / 8，Story 3.0 已完成第 1 道
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -156,46 +156,6 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 `理解`：已完成（2026-08-02）。
 `能讲 / 能画 / 能写`：待后续 Story 结合实际 Provider 和测试验证。
-
-### Q2. FastAPI `UploadFile` 和直接接收 `bytes` 有什么区别，如何避免大文件占满内存？
-
-**30 秒简答**
-
-`bytes` 会让完整文件内容以一个 Python Bytes 对象进入业务代码；大文件和并发上传会显著增加应用内存压力。`UploadFile` 提供文件对象，可以按固定 Chunk 读取，并使用可溢出到临时磁盘的底层对象。应用仍必须在循环中累计真实大小，不能依赖 `Content-Length`，也不能调用无参数的 `read()` 一次读完文件。
-
-**2 分钟完整回答**
-
-上传请求使用 `multipart/form-data`，文件 Part 包含客户端文件名、Content-Type 声明和真实 Bytes。使用 `bytes` 简单但不适合大文件，因为完整内容会在业务进程中形成一个大对象。使用 `UploadFile` 时，框架能够将文件作为可读取对象提供，小内容可暂存内存，超过阈值可使用临时磁盘。
-
-但临时磁盘不是正式文件存储。FileService 仍应以配置的 Chunk Size 循环读取，每次更新 `total_size` 和 SHA-256；一旦累计值超过配置上限，就抛出业务异常。业务异常最终由统一 Handler 映射为 HTTP 413。客户端 Header 可以帮助提前拒绝，但真实字节累计才是最终安全边界。
-
-**项目中的设计或代码证据**
-
-- Story 3.1 的 Multipart、`UploadFile`、Chunk、临时磁盘、类型安全和测试约束见 `docs/architecture/storage-architecture.md`。
-- 当前尚未创建正式 Upload API 或生产 Upload Helper；配置字段、业务异常和接口响应将在 Story 3.2 设计后实现。
-
-**为什么没有采用其他方案**
-
-- 不直接接收完整 `bytes`，因为文件越大、并发越高，进程内存风险越大。
-- 不只检查 `Content-Length`，因为 Header 可能缺失或不应成为唯一可信限制。
-- 不在 Router 中读取、校验和保存全部文件，因为业务规则和错误语义属于 Service。
-
-**常见追问**
-
-- UploadFile 使用临时磁盘是否代表文件已经上传成功？
-- Chunk Size 怎样选择？
-- 文件名、MIME 和文件签名分别能信任到什么程度？
-
-**容易说错的地方**
-
-- UploadFile 不等于所有场景下真正的端到端网络直通流。
-- 临时文件不是 LocalStorage，更不是可下载的正式业务资源。
-- 客户端声明的 MIME 和扩展名都可能被伪造。
-
-**掌握状态**
-
-`理解`：已完成（2026-08-02）。
-`能讲 / 能画 / 能写`：待后续 Story 在真实 API 和测试中验证。
 
 ## Sprint 4: AI Gateway
 

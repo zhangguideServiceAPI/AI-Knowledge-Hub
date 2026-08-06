@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 和 Story 3.1 已完成（2026-08-02）；Story 3.2 尚未开始。
+Story 3.0 已完成（2026-08-02）；Story 3.1 尚未开始。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.2 Resource Domain, API & Consistency Design
-Current Goal: Design file metadata, API contracts and cross-system consistency
-Current Step: Confirm the full resource model before creating Model or Provider code
+Current Story: Story 3.1 HTTP Upload & Streaming Foundation
+Current Goal: Understand how a client file safely enters FastAPI
+Current Step: Confirm the multipart request shape and streaming memory boundary
 ```
 
 ## Sprint 定位
@@ -387,16 +387,6 @@ Story 3.2 必须明确：
 - 能解释为什么请求 Header 不能替代实际字节计数。
 - 能指出大小限制、类型验证和 Provider 写入分别属于后续哪一层。
 - 不在 Story 3.2 架构确认前增加生产上传 Helper。
-
-### 验收记录
-
-- [x] 说明 Multipart Boundary、文件 Header、文件 Body 和 `UploadFile` 的关系。
-- [x] 对比 `bytes`、`UploadFile`、临时磁盘与分块读取的内存边界。
-- [x] 确认实际字节累计是大小上限的最终依据，`Content-Length` 只用于提前提示。
-- [x] 确认扩展名、客户端 MIME 和文件签名的信任边界。
-- [x] 确认 FileService 抛出业务异常，统一 Exception Handler 映射 HTTP 413/415 候选。
-- [x] 新增 Upload 协议、Streaming、安全、配置和测试草案。
-- [x] 同步 Sprint 3 第 2 道面试题。
 
 ## Story 3.2: Resource Domain, API & Consistency Design
 
