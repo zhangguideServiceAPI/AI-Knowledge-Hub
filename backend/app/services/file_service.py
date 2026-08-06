@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-from datetime import datetime
 from typing import BinaryIO
 from uuid import uuid4
 
@@ -9,34 +7,18 @@ from sqlalchemy.orm import Session
 from app.core.logging import logger
 from app.db.repositories.file_repository import FileRepository
 from app.models.file_resource import FileResource, FileStatus
-from app.schemas.file import (
-    FileResourceListResponse,
-    FileResourceResponse,
-)
+from app.schemas.file import FileResourceResponse
 from app.storage.provider import StorageProvider
 from app.storage.upload_validation import inspect_upload
 from app.storage.exceptions import (
     EmptyFileError,
-    FileContentUnavailableError,
-    FileDeleteFailedError,
-    FileResourceNotFoundError,
-    FileTooLargeError,
     FileUploadFailedError,
+    FileTooLargeError,
     InvalidFileNameError,
-    StorageObjectNotFoundError,
     StorageOperationError,
     StorageUnavailableError,
     UnsupportedFileTypeError,
 )
-
-
-@dataclass(frozen=True)
-class FileDownload:
-    stream: BinaryIO
-    original_filename: str
-    content_type: str
-    size_bytes: int
-    chunk_size: int
 
 
 class FileService:
@@ -64,6 +46,7 @@ class FileService:
         content_type: str | None,
         source: BinaryIO,
     ) -> FileResourceResponse:
+
         try:
             inspected = inspect_upload(
                 source=source,
@@ -171,195 +154,3 @@ class FileService:
             inspected.size_bytes,
         )
         return FileResourceResponse.model_validate(resource)
-
-    def get_file(
-        self,
-        *,
-        owner_id: int,
-        file_id: str,
-    ) -> FileResourceResponse:
-        resource = self._repository.get_owned(
-            file_id=file_id,
-            owner_id=owner_id,
-        )
-
-        if resource is None:
-            raise FileResourceNotFoundError()
-
-        return FileResourceResponse.model_validate(resource)
-
-    def list_files(
-        self,
-        *,
-        owner_id: int,
-        limit: int,
-        offset: int,
-    ) -> FileResourceListResponse:
-        resources = self._repository.list_owned(
-            owner_id=owner_id,
-            limit=limit,
-            offset=offset,
-        )
-
-        return FileResourceListResponse(
-            items=[
-                FileResourceResponse.model_validate(resource) for resource in resources
-            ],
-            limit=limit,
-            offset=offset,
-        )
-
-    def delete_file(
-        self,
-        *,
-        owner_id: int,
-        file_id: str,
-    ) -> None:
-        resource = self._repository.get_owned(
-            file_id=file_id,
-            owner_id=owner_id,
-        )
-
-        if resource is None:
-            raise FileResourceNotFoundError()
-
-        object_key = resource.object_key
-
-        try:
-            self._repository.update_status(
-                resource,
-                FileStatus.DELETING,
-            )
-            self._session.commit()
-        except SQLAlchemyError as error:
-            self._session.rollback()
-            logger.error(
-                "storage.delete.failed user_id=%s file_id=%s "
-                "reason=metadata_deleting_commit_failed",
-                owner_id,
-                file_id,
-            )
-            raise FileDeleteFailedError() from error
-
-        try:
-            self._storage_provider.delete(object_key)
-        except StorageOperationError as error:
-            logger.error(
-                "storage.delete.failed user_id=%s file_id=%s reason=provider_delete_failed",
-                owner_id,
-                file_id,
-            )
-
-            try:
-                self._repository.update_status(
-                    resource,
-                    FileStatus.CLEANUP_REQUIRED,
-                    failure_reason="provider_delete_failed",
-                )
-                self._session.commit()
-            except SQLAlchemyError as state_error:
-                self._session.rollback()
-                logger.error(
-                    "storage.compensation.failed operation=delete file_id=%s "
-                    "reason=cleanup_state_commit_failed",
-                    file_id,
-                )
-                raise FileDeleteFailedError() from state_error
-
-            raise StorageUnavailableError() from error
-
-        try:
-            self._repository.update_status(
-                resource,
-                FileStatus.DELETED,
-                deleted_at=datetime.now(),
-            )
-            self._session.commit()
-        except SQLAlchemyError as error:
-            self._session.rollback()
-
-            try:
-                self._repository.update_status(
-                    resource,
-                    FileStatus.CLEANUP_REQUIRED,
-                    failure_reason="metadata_delete_commit_failed",
-                )
-                self._session.commit()
-            except SQLAlchemyError as state_error:
-                self._session.rollback()
-                logger.error(
-                    "storage.compensation.failed operation=delete file_id=%s "
-                    "reason=cleanup_state_commit_failed",
-                    file_id,
-                )
-                raise FileDeleteFailedError() from state_error
-
-            logger.error(
-                "storage.delete.failed user_id=%s file_id=%s "
-                "reason=metadata_delete_commit_failed",
-                owner_id,
-                file_id,
-            )
-            raise FileDeleteFailedError() from error
-
-        logger.info(
-            "storage.delete.success user_id=%s file_id=%s",
-            owner_id,
-            file_id,
-        )
-
-    def download_file(
-        self,
-        *,
-        owner_id: int,
-        file_id: str,
-    ) -> FileDownload:
-        resource = self._repository.get_owned(
-            file_id=file_id,
-            owner_id=owner_id,
-        )
-
-        if resource is None:
-            raise FileResourceNotFoundError()
-
-        try:
-            stream = self._storage_provider.open(resource.object_key)
-        except StorageObjectNotFoundError as error:
-            logger.error(
-                "storage.download.failed user_id=%s file_id=%s reason=storage_object_missing",
-                owner_id,
-                file_id,
-            )
-
-            try:
-                self._repository.update_status(
-                    resource,
-                    FileStatus.CLEANUP_REQUIRED,
-                    failure_reason="storage_object_missing",
-                )
-                self._session.commit()
-            except SQLAlchemyError as state_error:
-                self._session.rollback()
-                logger.error(
-                    "storage.compensation.failed operation=download file_id=%s "
-                    "reason=cleanup_state_commit_failed",
-                    file_id,
-                )
-                raise FileContentUnavailableError() from state_error
-
-            raise FileContentUnavailableError() from error
-        except StorageOperationError as error:
-            logger.error(
-                "storage.download.failed user_id=%s file_id=%s reason=provider_read_failed",
-                owner_id,
-                file_id,
-            )
-            raise StorageUnavailableError() from error
-
-        return FileDownload(
-            stream=stream,
-            original_filename=resource.original_filename,
-            content_type=resource.content_type,
-            size_bytes=resource.size_bytes,
-            chunk_size=self._chunk_size,
-        )

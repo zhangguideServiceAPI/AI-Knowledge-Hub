@@ -16,12 +16,12 @@ Authorization: Bearer <access_token>
 Content-Type: multipart/form-data; boundary=<boundary>
 ```
 
-请求只包含一个必需的 `upload` Part。客户端不能提交 `owner_id`、`file_id`、`object_key`、Bucket 或服务器路径。
+请求只包含一个必需的 `file` Part。客户端不能提交 `owner_id`、`file_id`、`object_key`、Bucket 或服务器路径。
 
 ```text
 multipart/form-data
   -> boundary 分隔每个 Part
-  -> upload Part 包含 filename、客户端声明的 Content-Type 和文件 Bytes
+  -> file Part 包含 filename、客户端声明的 Content-Type 和文件 Bytes
   -> FastAPI 将文件部分表示为 UploadFile
 ```
 
@@ -104,7 +104,7 @@ StorageProvider
 | `FileTooLargeError` | FileService | 413 |
 | `UnsupportedFileTypeError` | FileService | 415 |
 | 未认证 | 认证依赖 | 401 |
-| Multipart 缺少必需 `upload` Part | FastAPI 请求校验 | 422 |
+| Multipart 缺少必需 `file` Part | FastAPI 请求校验 | 后续确认 |
 
 最终 Exception 类、错误码和统一 Handler 映射由 Story 3.2 一次性确认，避免在本 Story 提前写生产 Upload Helper。
 

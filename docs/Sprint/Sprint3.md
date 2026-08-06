@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 至 Story 3.6 已完成（2026-08-04）；当前进入 Story 3.7。
+Story 3.0 至 Story 3.5 已完成（2026-08-04）；当前进入 Story 3.6。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.7 MinIO & Real Object Storage Integration
-Current Goal: Prove the StorageProvider contract against a real S3-compatible service
-Current Step: Review MinIO configuration, bucket lifecycle and provider SDK boundary
+Current Story: Story 3.6 Download, Permission & Delete
+Current Goal: Expose owner-only file access while keeping Provider details internal
+Current Step: Design metadata query, streaming download and idempotent delete
 ```
 
 ## Sprint 定位
@@ -641,18 +641,6 @@ Story 3.2 必须明确：
 - 权限检查发生在生成下载流或 Signed URL 之前。
 - 删除失败不会让资源回到不明确状态。
 - Story Review、文档同步和 Commit 完成。
-
-### 验收记录
-
-- [x] 实现 Owner-only 文件列表、Metadata 详情、流式下载和逻辑删除 API。
-- [x] 其他用户、不可见状态和不存在资源统一返回 404，不泄露资源存在性。
-- [x] LocalStorage 下载使用 `StreamingResponse` 按 Chunk 读取，并在完成或异常后关闭文件流。
-- [x] 下载响应返回安全 MIME、长度和 RFC 5987 编码文件名，不暴露 Object Key 或本地路径。
-- [x] 删除先提交 `DELETING`，成功进入 `DELETED + deleted_at`，失败进入 `CLEANUP_REQUIRED`。
-- [x] 覆盖 Provider 故障、数据库提交失败、缺失对象、重复删除和 Owner 隔离测试。
-- [x] 使用真实 LocalStorage 完成上传、详情、列表、下载、删除和删除后 404 纵向测试。
-- [x] 新增 Storage Security 文档、ADR-0024，并同步 Sprint 3 面试题 Q6/Q7。
-- [x] 非集成测试通过：269 passed，10 deselected。
 
 ## Story 3.7: MinIO & Real Object Storage Integration
 

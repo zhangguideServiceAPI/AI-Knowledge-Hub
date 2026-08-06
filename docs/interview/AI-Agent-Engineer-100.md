@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：7 / 100
+正式完整答案：5 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：7 / 8，Story 3.0 至 3.6 已同步
+Sprint 3 面试答案：5 / 8，Story 3.0 至 3.4 已同步
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -326,97 +326,6 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 `理解 / 能写`：已完成（2026-08-03）。
 `能讲`：待不看文档口述验证。
 `能画`：待完整 FileService 与 MinIO 调用链完成后验证。
-
-### Q6. 如何防御路径穿越、伪造 MIME、超大文件和恶意文件名？
-
-**30 秒简答**
-
-客户端文件名、扩展名、MIME 和 Content-Length 都不可信。项目只把原始文件名作为受限展示 Metadata，Object Key 由服务端 UUID 生成；上传时分块累计真实大小、计算 SHA-256，并联合检查允许扩展名、标准化 MIME 和文件签名。
-
-**2 分钟完整回答**
-
-路径穿越的根本防线不是过滤几个 `../` 字符，而是客户端文件名永远不参与内部路径。项目生成 `users/{owner_id}/{file_id}` Object Key，LocalStorage 解析真实路径后再次验证它仍位于 Storage Root 内，并拒绝空 Key、根目录自身和逃逸路径。
-
-上传 Metadata 校验拒绝空文件名、超长文件名、`.`、`..`、斜杠、反斜杠和 Unicode 控制字符。MIME 会去除参数并标准化，扩展名必须属于对应允许集合；随后检查 PDF、PNG 或 JPEG 的实际文件签名。业务按 Chunk 读取真实 Bytes，累计大小超过配置立即拒绝，同时增量计算 SHA-256。Content-Length 只能用于提前提示，不能替代实际流内限制。
-
-这些检查不等于病毒扫描、内容审核或沙箱执行。项目明确只实现类型与大小边界，不声称能识别所有恶意文档。
-
-**项目中的设计或代码证据**
-
-- `upload_validation.py` 实现文件名、MIME、扩展名、签名、大小和 SHA-256 校验。
-- `LocalStorageProvider._resolve_path()` 约束真实路径必须位于 Storage Root。
-- 上传 API Test 验证 400、413、415，Provider Test 验证绝对路径与 `..` 越界。
-- Object Key 不包含 `original_filename`，相同文件名不会覆盖。
-
-**为什么没有采用其他方案**
-
-- 不信任扩展名或客户端 MIME 单独判断类型。
-- 不使用 Content-Length 作为最终大小证据。
-- 不把整个文件读入一个 `bytes` 再校验。
-- 当前不引入 ClamAV、内容审核和文档沙箱；它们需要独立资源预算和故障边界。
-
-**常见追问**
-
-- Magic Number 是否能百分之百证明文件安全？
-- 为什么 SHA-256 不能替代病毒扫描？
-- `Path.resolve()` 和 Object Key 服务端生成分别防御什么问题？
-- Multipart 解析完成前能否完全阻止上游接收超大请求？
-
-**容易说错的地方**
-
-- 文件签名只能提高类型可信度，不能证明内容无恶意。
-- SHA-256 用于完整性和重复内容识别，不是加密或安全扫描。
-- `UploadFile` 可溢出到临时磁盘，但仍需业务层限制实际大小。
-
-**掌握状态**
-
-`理解 / 能写`：已完成（2026-08-04）。
-`能讲 / 能画`：待不看文档演练。
-
-### Q7. StreamingResponse、后端代理下载和 Signed URL 分别适合什么场景？
-
-**30 秒简答**
-
-StreamingResponse 让后端边读边返回，适合 LocalStorage、细粒度审计和必须由应用控制的下载；Signed URL 让客户端短时间直连对象存储，适合大文件和高下载带宽。两者都必须先完成业务权限检查，Signed URL 本身是临时凭据，不是权限系统。
-
-**2 分钟完整回答**
-
-项目当前 LocalStorage 使用后端代理下载。FileService 先按 `file_id + owner_id + READY` 查询 Metadata，再打开内部 Object Key，返回结构化 `FileDownload`。Router 使用 StreamingResponse 按配置 Chunk 读取，设置 MIME、Content-Length 和经过编码的 Content-Disposition，并在响应完成或异常时关闭文件流。这样不会一次读取完整 PDF，也不会暴露本地路径。
-
-代理下载的代价是 FastAPI 实例承担连接和带宽。未来接入 MinIO 后，大文件或高并发下载可以在权限验证后签发短 TTL Presigned URL，让流量直接进入对象存储。URL 在有效期内可被持有者使用，因此不能记录到日志、不能使用过长 TTL，也不能跳过 owner 和状态检查。
-
-**项目中的设计或代码证据**
-
-- `FileService.download_file()` 在 Provider.open 前执行 Owner-only 查询。
-- `FileDownload` 传递流和安全 Metadata，不泄露 Object Key。
-- `GET /files/{file_id}/download` 使用分块 StreamingResponse，并编码下载文件名。
-- API Test 验证分块读取、Content-Disposition、Content-Length 和流关闭。
-- ADR-0024 记录 Local 代理流与未来 MinIO Signed URL 的边界。
-
-**为什么没有采用其他方案**
-
-- 不一次读取完整文件到内存。
-- 不直接返回 LocalStorage 路径或永久公开 URL。
-- 当前不强迫 LocalStorage 模拟 Signed URL 能力。
-- 不让 Router 直接调用 Provider，避免绕过权限和状态机。
-
-**常见追问**
-
-- Signed URL 泄露后能否立即撤销？
-- Range Request 和断点下载应在哪一层实现？
-- 后端代理下载如何处理客户端中断和文件流关闭？
-- 为什么下载成功默认不记录每次 INFO？
-
-**容易说错的地方**
-
-- StreamingResponse 降低的是一次性内存占用，不会降低总带宽。
-- Signed URL 减少应用带宽，但在 TTL 内属于可转发凭据。
-- UUID 难猜不代表有权限，签发流或 URL 前仍必须校验 owner。
-
-**掌握状态**
-
-`理解 / 能写`：已完成（2026-08-04）。
-`能讲 / 能画`：待结合 MinIO 对比演练。
 
 ## Sprint 4: AI Gateway
 

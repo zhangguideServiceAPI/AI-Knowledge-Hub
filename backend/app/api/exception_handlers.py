@@ -15,9 +15,6 @@ from app.core.logging import logger
 from app.schemas.error import ErrorResponse
 from app.storage.exceptions import (
     EmptyFileError,
-    FileContentUnavailableError,
-    FileDeleteFailedError,
-    FileResourceNotFoundError,
     FileTooLargeError,
     FileUploadFailedError,
     InvalidFileNameError,
@@ -176,7 +173,7 @@ async def storage_unavailable_handler(
     _error: StorageUnavailableError,
 ) -> JSONResponse:
     logger.error(
-        "storage.provider.unavailable method=%s path=%s",
+        "storage.upload.unavailable method=%s path=%s",
         request.method,
         request.url.path,
     )
@@ -197,49 +194,6 @@ async def file_upload_failed_handler(
         request.url.path,
     )
     response = ErrorResponse(detail="File upload failed.")
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=response.model_dump(),
-    )
-
-
-async def file_resource_not_found_handler(
-    _request: Request,
-    _error: FileResourceNotFoundError,
-) -> JSONResponse:
-    response = ErrorResponse(detail="File not found.")
-    return JSONResponse(
-        status_code=status.HTTP_404_NOT_FOUND,
-        content=response.model_dump(),
-    )
-
-
-async def file_delete_failed_handler(
-    request: Request,
-    _error: FileDeleteFailedError,
-) -> JSONResponse:
-    logger.error(
-        "storage.delete.failed method=%s path=%s",
-        request.method,
-        request.url.path,
-    )
-    response = ErrorResponse(detail="File deletion failed.")
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=response.model_dump(),
-    )
-
-
-async def file_content_unavailable_handler(
-    request: Request,
-    _error: FileContentUnavailableError,
-) -> JSONResponse:
-    logger.error(
-        "storage.download.failed method=%s path=%s",
-        request.method,
-        request.url.path,
-    )
-    response = ErrorResponse(detail="File content is unavailable.")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=response.model_dump(),
@@ -285,11 +239,3 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(UnsupportedFileTypeError, unsupported_file_type_handler)
     app.add_exception_handler(StorageUnavailableError, storage_unavailable_handler)
     app.add_exception_handler(FileUploadFailedError, file_upload_failed_handler)
-    app.add_exception_handler(
-        FileResourceNotFoundError, file_resource_not_found_handler
-    )
-    app.add_exception_handler(FileDeleteFailedError, file_delete_failed_handler)
-    app.add_exception_handler(
-        FileContentUnavailableError,
-        file_content_unavailable_handler,
-    )

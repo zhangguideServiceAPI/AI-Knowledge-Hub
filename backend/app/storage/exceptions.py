@@ -36,15 +36,3 @@ class StorageUnavailableError(Exception):
 
 class FileUploadFailedError(Exception):
     """数据库提交或补偿流程发生内部故障，对外映射为 500."""
-
-
-class FileResourceNotFoundError(Exception):
-    """文件不存在，或当前用户无权访问。"""
-
-
-class FileDeleteFailedError(Exception):
-    """文件删除的数据库状态提交或补偿流程失败。"""
-
-
-class FileContentUnavailableError(Exception):
-    """Metadata 存在，但对应的文件内容不可用。"""
