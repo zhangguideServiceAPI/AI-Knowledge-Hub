@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：1 / 100
+正式完整答案：0 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：1 / 8，Story 3.0 已完成第 1 道
+Sprint 3 面试答案：随 Story 3.0 至 3.8 同步形成 8 道
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -115,47 +115,6 @@ Sprint 2 的完整答案应引用认证流程、Session Architecture、Refresh T
 8. 如何设计 Owner-only 文件权限、删除状态和真实 MinIO 集成测试？
 
 每道题必须随着对应 Story 完成逐步补充答案，不能在尚未实现前把候选设计描述成项目事实。
-
-### Q1. Block、File 和 Object Storage 有什么区别，AI 平台为什么通常使用对象存储？
-
-**30 秒简答**
-
-Block Storage 是给机器使用的原始磁盘，File Storage 是按目录和路径访问的共享文件树，Object Storage 是通过 Bucket、Object Key 和 API 保存对象。AI 平台通常将文件 Bytes 放进对象存储，将用户、权限、状态和索引 Metadata 放进数据库，因为对象存储可以被多个应用实例共同访问，也不会把大文件绑定到某一台 FastAPI 机器。
-
-**2 分钟完整回答**
-
-Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的数据目录。File Storage 提供目录和路径，例如 NAS 共享目录，多个实例可以挂载同一位置。Object Storage 不要求应用共享本机目录，而是通过网络 API 把文件保存到 Bucket 中的 Object Key。
-
-对于 AI Platform，上传的 PDF、图片和音频是容量大、结构多样的二进制对象；业务需要的却是可查询、可授权、可分页的资源信息。因此 MySQL 保存稳定 `file_id`、`owner_id`、大小、Checksum、状态和内部 Object Key；对象存储保存文件 Bytes。客户端只使用 `file_id`，后端检查权限后再从 Metadata 找到对象位置。这样可以从 LocalStorage 迁移到 MinIO 或云对象存储，而不修改客户端 API。CDN 是对象存储前的下载缓存层，不是业务事实来源。
-
-**项目中的设计或代码证据**
-
-- Story 3.0 的资源链路和存储类型对比见 `docs/architecture/storage-evolution.md`。
-- ADR-0021 已确定 LocalStorage 用于快速开发和 Unit Test，MinIO 用于真实 S3-compatible 集成验证。
-- 当前项目尚未实现 StorageProvider、上传 API 或 MinIO；以上是已接受的设计边界，不应描述为已经运行的业务能力。
-
-**为什么没有采用其他方案**
-
-- 不将文件固定写入某个 FastAPI 实例的 `uploads/`，因为多实例访问、容器重建、迁移和备份都会受限。
-- 不将所有大文件写入 MySQL BLOB，因为数据库不适合承担大二进制对象的容量、备份和 I/O 压力。
-- 不在 Story 3.0 直接接入 COS 或 S3，避免云账号、网络和费用配置掩盖存储边界本身的学习目标。
-
-**常见追问**
-
-- 为什么客户端使用 `file_id`，而不是 Object Key？
-- NAS 和 Object Storage 在多实例场景中各有什么取舍？
-- ETag 能否当作 SHA-256 使用？
-
-**容易说错的地方**
-
-- Object Storage 不是 Redis 一类的通用内存 Key-Value 数据库。
-- Object Key 不是必须暴露给客户端的服务器路径。
-- ETag 的含义由存储服务和上传方式决定，不能默认等同于 SHA-256。
-
-**掌握状态**
-
-`理解`：已完成（2026-08-02）。
-`能讲 / 能画 / 能写`：待后续 Story 结合实际 Provider 和测试验证。
 
 ## Sprint 4: AI Gateway
 

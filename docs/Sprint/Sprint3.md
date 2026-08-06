@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 已完成（2026-08-02）；Story 3.1 尚未开始。
+规划已同步（2026-07-31），尚未开始实现。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.1 HTTP Upload & Streaming Foundation
-Current Goal: Understand how a client file safely enters FastAPI
-Current Step: Confirm the multipart request shape and streaming memory boundary
+Current Story: Story 3.0 Storage Evolution & System Map
+Current Goal: Understand the storage system before implementing upload APIs
+Current Step: Confirm scope, architecture boundaries and learning order
 ```
 
 ## Sprint 定位
@@ -345,15 +345,6 @@ Story 3.2 必须明确：
 - 能解释当前 Sprint 为什么不能只写 `uploads/filename`。
 - 能指出 LocalStorage 的适用范围和生产限制。
 - 设计 Review 通过后再进入 HTTP 代码。
-
-### 验收记录
-
-- [x] 完成客户端文件到未来 RAG 的资源链路图。
-- [x] 区分 Block、File 和 Object Storage，以及 Local Disk、NAS、Object Storage 和 CDN 的边界。
-- [x] 解释 MySQL Metadata 与对象存储 Bytes 的职责分离。
-- [x] 解释稳定 `file_id` 与内部 `object_key` 的差异和迁移边界。
-- [x] 新增 Storage Evolution 文档和 ADR-0021。
-- [x] 同步 Sprint 3 第 1 道面试题。
 
 ## Story 3.1: HTTP Upload & Streaming Foundation
 
