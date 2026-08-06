@@ -2,12 +2,12 @@
 
 ## 状态
 
-已完成（2026-07-31）。
+进行中（2026-07-23）。
 
 ```text
-Current Story: Sprint 2 Complete
-Current Goal: Preserve Session and Identity Management decisions
-Current Step: Ready for Sprint 3 Storage
+Current Story: Sprint 2 Closeout
+Current Goal: Complete documentation, review and acceptance
+Current Step: Complete authentication flow diagrams and Sprint Review
 ```
 
 ## Sprint 目标
@@ -96,11 +96,10 @@ Sprint 收尾
   [完成] 认证测试矩阵与真实 Redis 纵向集成测试
   [完成] 认证事件日志、敏感数据边界和日志洪泛边界
   [完成] 用户 Session 设计与实现
-  [完成] 注册、登录、Refresh、Logout 和 Session 管理总流程图
-  [完成] Sprint Review
+  [待完成] 注册登录全流程图和 Sprint Review
 ```
 
-当前学习位置：Sprint 2 已完成并通过最终 Review。下一阶段进入 Sprint 3 Storage，开始前应先盘点 Sprint 3 的学习目标、知识点、练习和完成标准。
+当前学习位置：Story 2.9 User Session Design & Implementation 已完成。现在进入 Sprint 2 收尾，汇总注册、登录、Refresh、Logout 和 Session 管理流程，并完成最终 Review。
 
 ### 固定过期模式认证流程图（学习版）
 
@@ -239,8 +238,6 @@ Access Token exp   = min(当前时间 + 30 分钟, Session expires_at)
 - 范围调整（2026-07-31）：Story 2.9 从仅设计调整为直接实现；按 Token Claims、Session 元数据、原子 Repository、Service/API 和完整验收顺序推进。
 - 已完成（2026-07-31）：实现 `GET /users/sessions`、`DELETE /users/sessions/{session_id}` 和 `DELETE /users/sessions`，支持当前设备标记、单设备撤销和全部设备登出。
 - 已完成（2026-07-31）：普通测试 185 项、真实 Redis Integration Test 10 项、Ruff、格式和 `git diff --check` 全部通过。
-- 已完成（2026-07-31）：创建 `docs/architecture/authentication-flow.md`，用总流程图和分步时序图汇总注册、登录、Access、Refresh、Logout 和多设备 Session 管理。
-- Sprint 2 Review：97/100，通过（2026-07-31）；功能、架构、测试、文档、ADR 和日志验收无阻断问题。
 
 ## North Star
 
@@ -648,62 +645,41 @@ DELETE /users/sessions
 ## 文档输出
 
 - `docs/architecture/authentication-evolution.md`
-- `docs/architecture/authentication-flow.md`（已汇总注册、登录、Refresh、Logout 和 Session 管理时序与职责关系）
+- `docs/architecture/authentication-flow.md`（Sprint 收尾时汇总注册、登录、Refresh 和 Logout 时序与职责关系）
 - `docs/architecture/session-architecture.md`
 - `docs/architecture/refresh-token-design.md`
 - `docs/architecture/redis-authentication.md`
 - `docs/architecture/authentication-security.md`
 - Sprint 过程和验收结果继续记录在当前 `docs/Sprint/Sprint2.md`。
 
-## ADR 输出
+## ADR 规划
 
-- ADR-0015：为什么认证使用 Redis，已接受。
-- ADR-0016：Session Architecture，已接受。
-- ADR-0017：Refresh Token Design，已接受。
-- ADR-0018：Token Rotation，已接受。
-- ADR-0019：Client Refresh Contract，已接受。
-- ADR-0020：JWT Signing Key Rotation，已接受。
+- ADR-0015：为什么认证使用 Redis。
+- ADR-0016：Session Architecture。
+- ADR-0017：Refresh Token Design。
+- ADR-0018：Token Rotation。
 
 ## 验收标准
 
 ### 功能
 
-- [x] Redis 接入完成。
-- [x] Refresh Token Rotation 完成。
-- [x] Logout 完成。
-- [x] Session 生命周期正确。
-- [x] 多设备设计与实现完成。
+- Redis 接入完成。
+- Refresh Token Rotation 完成。
+- Logout 完成。
+- Session 生命周期正确。
+- 多设备设计完成。
 
 ### 工程
 
-- [x] Architecture Review 完成。
-- [x] Code Review 完成。
-- [x] 文档同步完成。
-- [x] ADR 完成。
-- [x] 测试通过。
-- [x] 日志规范完成。
-- [x] 注册、登录、Refresh、Logout 和 Session 管理全流程时序图与职责关系图完成。
+- Architecture Review 完成。
+- Code Review 完成。
+- 文档同步完成。
+- ADR 完成。
+- 测试通过。
+- 日志规范完成。
+- 注册、登录、Refresh 和 Logout 全流程时序图与职责关系图完成。
 
-## Sprint Review
-
-**Review 日期：2026-07-31**
-
-| 维度 | 得分 | 结论 |
-| --- | ---: | --- |
-| 功能完整性 | 30/30 | Login、Refresh、Logout、多设备 Session 管理和错误契约完整 |
-| 架构与安全 | 28/30 | Redis 状态、Token 生命周期、原子操作和密钥轮换边界明确 |
-| 测试与可靠性 | 20/20 | 普通测试 185 项、真实 Redis Integration Test 10 项通过 |
-| 工程规范 | 10/10 | Router、Service、Repository、Schema、Exception 和 Logging 职责清晰 |
-| 文档与学习闭环 | 9/10 | 架构文档、ADR、总流程图和学习记录完整 |
-| **综合评分** | **97/100** | **通过，可以进入 Sprint 3** |
-
-Review 无阻断问题。以下边界保留到后续 Sprint：
-
-- 普通 Access Token 不支持服务端逐个立即撤销，最迟使用到自身 `exp`。
-- 登录限流尚未增加可信客户端 IP 维度。
-- 浏览器 Cookie、CSRF 和生产 CORS 尚未实现。
-- Redis Cluster 跨 Slot Lua、MFA、recent re-auth 和受信任设备属于后续能力。
-- 结构化日志、Request ID、指标和集中式日志平台留到 Observability Sprint。
+综合评分达到 **90 分及以上**，才进入 Sprint 3。
 
 ## 长期路线
 

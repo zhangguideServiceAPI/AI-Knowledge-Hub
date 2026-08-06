@@ -48,12 +48,11 @@ JWT 签名验证只能证明 Token 由本服务签发且 Claims 合法，不能�
 | Claim | 含义 |
 | --- | --- |
 | `sub` | 本地用户 ID |
-| `sid` | 当前 Redis Session ID；同一 Session 的 Rotation 期间保持不变 |
 | `type=access` | 防止 Refresh Token 被当作 Access Token 使用 |
 | `iat` | 签发时间 |
 | `exp` | 过期时间 |
 
-Access Token 默认有效期为 30 分钟，并已把 `exp` 限制在 Session 最终过期时间以内。旧 Access Token 缺少 `sid` 时普通业务 API 继续兼容，但敏感 Session 管理接口返回 401。
+Access Token 默认有效期为 30 分钟。目标实现需要把它的 `exp` 限制在 Session 最终过期时间以内。
 
 ### 4.2 Refresh Token
 
@@ -206,4 +205,4 @@ Rotation 保持 `sid` 不变，生成新的 `jti`、Refresh JWT 和 Token Hash�
 - Story 2.4：上述 Logout Service/API 与客户端删除 Token 契约已实现。
 - Story 2.5：客户端单航班契约和浏览器 Cookie 安全基线已由 `client-refresh-contract.md` 与 ADR-0019 固化；具体实现属于未来客户端或浏览器接入工作。
 - Story 2.6：已完成原子 Logout、Secret Rotation、固定/Sliding 过期和登录并发限流安全 Review。
-- Sprint 收尾：注册、登录、Refresh、Logout 和多设备 Session 管理的端到端流程已汇总到 `authentication-flow.md`。
+- Sprint 收尾：汇总注册、登录、Refresh 和 Logout 的端到端时序图。
