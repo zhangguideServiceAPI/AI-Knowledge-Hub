@@ -1,5 +1,4 @@
 backend/.venv/
-backend/data/storage/
 __pycache__/
 *.pyc
 .env
