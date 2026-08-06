@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 至 Story 3.7 已完成（2026-08-05）；当前进入 Story 3.8。
+Story 3.0 至 Story 3.6 已完成（2026-08-04）；当前进入 Story 3.7。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.8 Lifecycle, Testing, Observability & Sprint Review
-Current Goal: Review the complete file lifecycle and close Sprint 3
-Current Step: Audit lifecycle states, failure recovery, documentation and architecture boundaries
+Current Story: Story 3.7 MinIO & Real Object Storage Integration
+Current Goal: Prove the StorageProvider contract against a real S3-compatible service
+Current Step: Review MinIO configuration, bucket lifecycle and provider SDK boundary
 ```
 
 ## Sprint 定位
@@ -62,7 +62,7 @@ flowchart TD
     J --> K["验证资源属于当前用户"]
     K --> L{"存储实现"}
     L -- "Local" --> M["StreamingResponse"]
-    L -- "MinIO" --> N["当前代理流\n未来按规模评估 Signed URL"]
+    L -- "MinIO" --> N["短期 Signed URL 或代理流"]
 
     H --> O["DELETE /files/{id}"]
     O --> P["验证权限并进入删除流程"]
@@ -691,19 +691,6 @@ Story 3.2 必须明确：
 - 真实 MinIO Integration Test 通过。
 - Compose 停止/恢复验证不会遗留错误状态。
 - Story Review、文档同步和 Commit 完成。
-
-### 验收记录
-
-- [x] Compose 使用固定版本 MinIO Server、一次性 `minio-init`、Healthcheck 和 Named Volume。
-- [x] Root 与应用账号分离，动态 Policy 只授权配置 Bucket 的读写、删除和 Multipart 最小能力。
-- [x] 使用 boto3 实现 `MinIOStorageProvider`，并通过 Factory 按配置切换 Local/MinIO。
-- [x] boto3 Client 与连接池在进程内复用，FileService 不依赖 S3 SDK。
-- [x] MySQL 正确记录实际 `storage_provider`、Bucket 和 Object Key，不再硬编码 Local。
-- [x] MinIO 模式使用 `head_bucket()` 进入 Readiness；Local 模式不访问 MinIO。
-- [x] MinIO 停止时 Readiness 快速进入 `storage=unavailable`，恢复后自动回到 `ready` 且数据链路继续可用。
-- [x] 当前 MinIO 下载继续使用权限检查后的 FastAPI 代理流，Signed URL 延后到规模数据证明需要时。
-- [x] 真实 MinIO 验证上传、存在性、下载、SHA-256、幂等删除、错误凭据和不存在 Bucket。
-- [x] HTTP 纵向测试验证 Router、FileService、MySQL Metadata 与真实 MinIO 的完整生命周期。
 
 ## Story 3.8: Lifecycle, Testing, Observability & Sprint Review
 

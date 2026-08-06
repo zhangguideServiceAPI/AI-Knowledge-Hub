@@ -25,7 +25,6 @@ def test_readiness_returns_ready(
             status="ready",
             database="ok",
             redis="ok",
-            storage="ok",
         ),
     )
 
@@ -36,7 +35,6 @@ def test_readiness_returns_ready(
         "status": "ready",
         "database": "ok",
         "redis": "ok",
-        "storage": "ok",
     }
 
 
@@ -50,7 +48,6 @@ def test_readiness_returns_unavailable_when_redis_is_down(
             status="not_ready",
             database="ok",
             redis="unavailable",
-            storage="ok",
         ),
     )
 
@@ -61,7 +58,6 @@ def test_readiness_returns_unavailable_when_redis_is_down(
         "status": "not_ready",
         "database": "ok",
         "redis": "unavailable",
-        "storage": "ok",
     }
 
 
@@ -74,7 +70,6 @@ def test_readiness_returns_unavailable_when_database_is_down(
             status="not_ready",
             database="unavailable",
             redis="ok",
-            storage="ok",
         ),
     )
 
@@ -85,29 +80,4 @@ def test_readiness_returns_unavailable_when_database_is_down(
         "status": "not_ready",
         "database": "unavailable",
         "redis": "ok",
-        "storage": "ok",
-    }
-
-
-def test_readiness_returns_unavailable_when_storage_is_down(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "app.api.health.get_application_readiness",
-        lambda: ReadinessResponse(
-            status="not_ready",
-            database="ok",
-            redis="ok",
-            storage="unavailable",
-        ),
-    )
-
-    response = client.get("/health/ready")
-
-    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {
-        "status": "not_ready",
-        "database": "ok",
-        "redis": "ok",
-        "storage": "unavailable",
     }

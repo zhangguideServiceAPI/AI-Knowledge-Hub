@@ -7,7 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic==1.14.0",
     "bcrypt==5.0.0",
-    "boto3==1.43.64",
     "email-validator==2.2.0",
     "fastapi==0.115.6",
     "pydantic==2.10.4",
@@ -32,5 +31,5 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
-    "integration: requires real external services such as Redis or MinIO",
+    "integration: requires real external services such as Redis",
 ]

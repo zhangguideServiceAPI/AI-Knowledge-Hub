@@ -13,7 +13,7 @@ from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.file_service import FileService
 from app.services.login_rate_limiter import LoginRateLimiter
-from app.storage.factory import get_storage_bucket, get_storage_provider
+from app.storage.local import LocalStorageProvider
 from app.storage.provider import StorageProvider
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -50,6 +50,13 @@ def get_login_rate_limiter() -> LoginRateLimiter:
     )
 
 
+def get_storage_provider() -> StorageProvider:
+    return LocalStorageProvider(
+        root=settings.STORAGE_LOCAL_ROOT,
+        chunk_size=settings.UPLOAD_CHUNK_SIZE_BYTES,
+    )
+
+
 def get_file_service(
     session: Annotated[Session, Depends(get_db)],
     storage_provider: Annotated[StorageProvider, Depends(get_storage_provider)],
@@ -57,8 +64,7 @@ def get_file_service(
     return FileService(
         session,
         storage_provider,
-        storage_provider_name=settings.STORAGE_PROVIDER,
-        bucket=get_storage_bucket(),
+        bucket="local",
         max_upload_size=settings.MAX_UPLOAD_SIZE_BYTES,
         chunk_size=settings.UPLOAD_CHUNK_SIZE_BYTES,
     )

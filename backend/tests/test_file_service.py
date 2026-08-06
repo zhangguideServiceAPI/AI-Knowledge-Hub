@@ -46,17 +46,8 @@ def _create_ready_file(
     return resource
 
 
-@pytest.mark.parametrize(
-    ("storage_provider_name", "bucket"),
-    [
-        ("local", "local"),
-        ("minio", "test-files"),
-    ],
-)
 def test_upload_creates_ready_resource(
     session: Session,
-    storage_provider_name: str,
-    bucket: str,
 ) -> None:
     user = User(
         email="upload-owner@example.com",
@@ -69,8 +60,7 @@ def test_upload_creates_ready_resource(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name=storage_provider_name,
-        bucket=bucket,
+        bucket="local",
         max_upload_size=1024 * 1024,
         chunk_size=4,
     )
@@ -94,8 +84,6 @@ def test_upload_creates_ready_resource(
     assert stored_resource is not None
     assert stored_resource.status == FileStatus.READY.value
     assert stored_resource.owner_id == user.id
-    assert stored_resource.storage_provider == storage_provider_name
-    assert stored_resource.bucket == bucket
     assert stored_resource.object_key.startswith(f"users/{user.id}/")
     assert "report.pdf" not in stored_resource.object_key
 
@@ -122,7 +110,6 @@ def test_upload_marks_failed_when_provider_write_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024 * 1024,
         chunk_size=4,
@@ -156,7 +143,6 @@ def test_upload_rejection_logs_fixed_reason(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024 * 1024,
         chunk_size=4,
@@ -192,7 +178,6 @@ def test_upload_deletes_object_when_ready_commit_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024 * 1024,
         chunk_size=4,
@@ -244,7 +229,6 @@ def test_upload_marks_cleanup_required_when_compensation_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024 * 1024,
         chunk_size=4,
@@ -298,7 +282,6 @@ def test_get_file_returns_owned_ready_resource(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -327,7 +310,6 @@ def test_get_file_rejects_missing_resource(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -363,7 +345,6 @@ def test_get_file_hides_other_users_resource(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -404,7 +385,6 @@ def test_list_files_returns_only_owned_resources(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -445,7 +425,6 @@ def test_list_files_applies_pagination(
     service = FileService(
         session,
         Mock(spec=StorageProvider),
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -490,7 +469,6 @@ def test_delete_file_hides_resource_before_deleting_object(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -529,7 +507,6 @@ def test_delete_file_marks_cleanup_required_when_provider_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -573,7 +550,6 @@ def test_delete_file_does_not_call_provider_when_deleting_commit_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -619,7 +595,6 @@ def test_delete_file_marks_cleanup_required_when_final_commit_fails(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -660,7 +635,6 @@ def test_download_file_returns_stream_and_safe_metadata(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -699,7 +673,6 @@ def test_download_file_marks_cleanup_required_when_object_is_missing(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -738,7 +711,6 @@ def test_download_file_maps_provider_failure(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -782,7 +754,6 @@ def test_file_operations_hide_other_users_resource(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,
@@ -823,7 +794,6 @@ def test_delete_file_returns_not_found_when_repeated(
     service = FileService(
         session,
         storage_provider,
-        storage_provider_name="local",
         bucket="local",
         max_upload_size=1024,
         chunk_size=4,

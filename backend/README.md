@@ -5,7 +5,7 @@ AI-Knowledge-Hub 的 FastAPI 后端。完整本地启动流程见[项目 README]
 ## 分层结构
 
 ```text
-API -> Service -> Repository / StorageProvider
+API -> Service -> Database
 ```
 
 - `app/api/`：HTTP 路由和状态码
@@ -13,7 +13,6 @@ API -> Service -> Repository / StorageProvider
 - `app/schemas/`：请求与响应协议
 - `app/models/`：SQLAlchemy 模型
 - `app/db/`：SQLAlchemy Engine、Session、Redis 客户端和依赖探测
-- `app/storage/`：Local/MinIO Provider、Factory、上传校验和 Storage Readiness
 - `app/core/`：配置和日志
 
 ## 依赖管理
@@ -50,14 +49,8 @@ uv run alembic revision --autogenerate -m "describe the change"
 uv run pytest -q
 ```
 
-普通测试默认跳过需要真实外部服务的 Integration Test。显式运行真实 Redis 测试：
+普通测试默认跳过需要真实 Redis 的 Integration Test。显式运行真实 Redis 测试：
 
 ```bash
 RUN_REDIS_INTEGRATION_TESTS=1 uv run pytest -m integration -q
-```
-
-显式运行真实 MinIO Provider 与 HTTP 生命周期测试：
-
-```bash
-RUN_MINIO_INTEGRATION_TESTS=1 uv run pytest -m integration -q
 ```
