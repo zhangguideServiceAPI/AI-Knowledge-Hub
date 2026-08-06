@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 3 - Storage & Resource Management 规划中**
+当前阶段：**Sprint 2 - Session & Identity Management 已完成**
 
 已经完成：
 
@@ -36,7 +36,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Register、Login、Refresh、Replay、Logout 和 Redis 故障的安全事件日志
 - 多设备 Session 列表、当前设备识别、单设备撤销和全部设备登出
 
-Sprint 2 Session & Identity Management 已完成。Sprint 3 学习计划已同步，下一步从 Storage Evolution 与系统总图开始，随后进入 HTTP Streaming、StorageProvider、File Metadata、上传安全、下载权限和真实 MinIO 验证。
+Sprint 2 Session & Identity Management 已完成。项目已经具备短期 Access Token、可轮换 Refresh Token、Redis Session、当前设备 Logout、多设备管理、安全日志和完整认证流程文档；下一步可以进入 Sprint 3 Storage。
 
 ## 技术栈
 

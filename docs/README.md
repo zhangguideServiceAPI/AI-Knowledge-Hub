@@ -10,10 +10,6 @@
 4. [Code Review 规范](CodeReview规范.md)
 5. 当前 [Sprint](Sprint/)
 
-## 学习与面试
-
-- [AI Agent 工程师 100 道高频面试题计划](interview/AI-Agent-Engineer-100.md)
-
 ## 工程规范
 
 - [编码规范](编码规范.md)
@@ -26,9 +22,6 @@
 - [系统概览](architecture/system-overview.md)
 - [项目结构](architecture/project-structure.md)
 - [认证体系演进](architecture/authentication-evolution.md)
-- [认证总流程](architecture/authentication-flow.md)
-- [认证安全 Review](architecture/authentication-security.md)
-- [Redis Authentication](architecture/redis-authentication.md)
 - [Session Architecture](architecture/session-architecture.md)
 - [Refresh Token Design](architecture/refresh-token-design.md)
 - [Client Refresh Contract](architecture/client-refresh-contract.md)
@@ -38,8 +31,7 @@
 
 - [Sprint 0](Sprint/Sprint0.md)
 - [Sprint 1](Sprint/Sprint1.md)
-- [Sprint 2：会话与身份管理（已完成）](Sprint/Sprint2.md)
-- [Sprint 3：存储与资源管理（规划中）](Sprint/Sprint3.md)
+- [Sprint 2：会话与身份管理（进行中）](Sprint/Sprint2.md)
 - [Sprint 长期路线](Sprint/Sprint长期路线.md)
 
 ## 维护边界
