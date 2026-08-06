@@ -167,14 +167,14 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.8 Observability
+Current Story: Story 2.7 Testing
 Current Goal:
-  - Define Authentication Security Event Logging
-  - Avoid Credential Leakage and Log Flooding
+  - Audit Unit, API, Integration and Security Test Responsibilities
+  - Identify Missing End-to-End Authentication Coverage
 
 In Progress:
   - Session and Identity Management
-  - Authentication Observability Design
+  - Authentication Test Matrix Review
 
 Not Started:
   - AI Chat
