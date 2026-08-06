@@ -21,7 +21,6 @@
 
 - [系统概览](architecture/system-overview.md)
 - [项目结构](architecture/project-structure.md)
-- [认证体系演进](architecture/authentication-evolution.md)
 - [架构决策记录](architecture/adr/)
 
 ## Sprint 记录
