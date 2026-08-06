@@ -7,6 +7,7 @@ from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.logging import logger, setup_logging
 
+
 setup_logging()
 
 app = FastAPI(title=settings.APP_NAME)

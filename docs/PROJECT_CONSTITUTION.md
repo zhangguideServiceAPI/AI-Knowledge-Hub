@@ -167,14 +167,15 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint2
-Current Story: Story 2.4 Logout
+Current Story: Story 2.1 Redis Foundation
 Current Goal:
-  - Revoke the Current Device Session in Redis
-  - Keep Already Issued Access Tokens Naturally Expiring
+  - Understand Why Authentication Uses Redis
+  - Learn Redis Memory Store, TTL, and Atomic Operations
+  - Produce ADR-0015 Before Session Architecture Design
 
 In Progress:
   - Session and Identity Management
-  - Current Device Logout
+  - Redis Foundation
 
 Not Started:
   - AI Chat

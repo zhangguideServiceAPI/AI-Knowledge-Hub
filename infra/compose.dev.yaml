@@ -23,32 +23,6 @@ services:
       retries: 10
       start_period: 30s
 
-  redis:
-    image: redis:7.4.2-alpine
-    user: redis
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?Please set REDIS_PASSWORD in backend/.env}
-    command:
-      - /bin/sh
-      - -c
-      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q '^PONG$'
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-
 volumes:
   mysql_data:
     name: ai-knowledge-hub-mysql-data
-
-  redis_data:
-    name: ai-knowledge-hub-redis-data

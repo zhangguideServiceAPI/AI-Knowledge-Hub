@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Response, status
 
 from app.schemas.health import LivenessResponse, ReadinessResponse
-from app.services.health_service import get_application_readiness
+from app.services.health_service import is_application_ready
+
 
 router = APIRouter(
     prefix="/health",
@@ -29,8 +30,9 @@ def liveness() -> LivenessResponse:
     },
 )
 def readiness(response: Response) -> ReadinessResponse:
-    readiness_status = get_application_readiness()
-    if readiness_status.status == "not_ready":
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    if is_application_ready():
+        return ReadinessResponse(status="ready", database="ok")
 
-    return readiness_status
+    response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return ReadinessResponse(status="not_ready", database="unavailable")

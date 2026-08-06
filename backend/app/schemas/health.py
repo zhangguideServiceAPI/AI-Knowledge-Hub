@@ -10,4 +10,3 @@ class LivenessResponse(BaseModel):
 class ReadinessResponse(BaseModel):
     status: Literal["ready", "not_ready"]
     database: Literal["ok", "unavailable"]
-    redis: Literal["ok", "unavailable"]

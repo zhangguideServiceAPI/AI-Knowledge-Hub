@@ -45,19 +45,3 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in: PositiveInt
-
-
-class RefreshRequest(BaseModel):
-    """API 或移动端提交 Refresh Token 时使用的请求。"""
-
-    refresh_token: str = Field(
-        min_length=1,
-        max_length=4096,
-    )
-
-
-class TokenPairResponse(TokenResponse):
-    """登录或 Refresh 成功后返回的新 Access/Refresh Token 对。"""
-
-    refresh_token: str
-    refresh_expires_in: PositiveInt

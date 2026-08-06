@@ -11,10 +11,10 @@ Logging
 Router
   |
 Service (Sprint1)
-  |-------------------|
-Repository (Sprint1)  Redis Client (Sprint2)
-  |                   |
-SQLAlchemy            Redis
+  |
+Repository (Sprint1)
+  |
+SQLAlchemy
   |
 MySQL
 

@@ -2,13 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.security import BCRYPT_PASSWORD_MAX_BYTES
-from app.schemas.auth import (
-    LoginRequest,
-    RefreshRequest,
-    RegisterRequest,
-    TokenPairResponse,
-    TokenResponse,
-)
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
 
 def test_register_request_accepts_valid_data() -> None:
@@ -93,39 +87,3 @@ def test_token_response_uses_bearer_token_type() -> None:
     assert response.access_token == "signed-token"
     assert response.token_type == "bearer"
     assert response.expires_in == 1800
-
-
-def test_refresh_request_accepts_token() -> None:
-    request = RefreshRequest(refresh_token="signed-refresh-token")
-
-    assert request.refresh_token == "signed-refresh-token"
-
-
-@pytest.mark.parametrize(
-    "refresh_token",
-    ["", "a" * 4097],
-)
-def test_refresh_request_rejects_invalid_length(
-    refresh_token: str,
-) -> None:
-    with pytest.raises(ValidationError) as error:
-        RefreshRequest(refresh_token=refresh_token)
-
-    assert error.value.errors()[0]["loc"] == ("refresh_token",)
-
-
-def test_token_pair_response_contains_both_tokens() -> None:
-    response = TokenPairResponse(
-        access_token="access-token",
-        refresh_token="refresh-token",
-        expires_in=1800,
-        refresh_expires_in=604800,
-    )
-
-    assert response.model_dump() == {
-        "access_token": "access-token",
-        "token_type": "bearer",
-        "expires_in": 1800,
-        "refresh_token": "refresh-token",
-        "refresh_expires_in": 604800,
-    }
