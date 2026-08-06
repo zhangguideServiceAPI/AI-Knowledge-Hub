@@ -8,11 +8,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+os.environ["JWT_SECRET_KEY"] = "test-only-jwt-secret-key-32-characters"
 if os.getenv("RUN_REDIS_INTEGRATION_TESTS") != "1":
     os.environ["REDIS_PASSWORD"] = "test-only-redis-password"
-
-os.environ["JWT_ACTIVE_KEY_ID"] = "test-v1"
-os.environ["JWT_SIGNING_KEYS"] = '{"test-v1":"test-only-jwt-secret-key-32-characters"}'
 
 from app.api.dependencies import get_login_rate_limiter, get_session_repository
 from app.db.base import Base
@@ -61,7 +59,7 @@ def client(
 @pytest.fixture
 def login_rate_limiter() -> Mock:
     limiter = Mock(spec=LoginRateLimiter)
-    limiter.reserve_attempt.return_value = True
+    limiter.is_limited.return_value = False
     return limiter
 
 

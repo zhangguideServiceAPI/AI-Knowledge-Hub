@@ -7,9 +7,21 @@ VALID_JWT_SECRET = "test-only-jwt-secret-key-32-characters"
 VALID_REDIS_PASSWORD = "test-only-redis-password"
 
 
+def test_settings_rejects_short_jwt_secret() -> None:
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            _env_file=None,
+            JWT_SECRET_KEY="short-secret",
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        )
+
+    assert error.value.errors()[0]["loc"] == ("JWT_SECRET_KEY",)
+
+
 def test_settings_loads_redis_config() -> None:
     settings = Settings(
         _env_file=None,
+        JWT_SECRET_KEY=VALID_JWT_SECRET,
         REDIS_HOST="redis",
         REDIS_PORT=6380,
         REDIS_DB=1,
@@ -31,6 +43,7 @@ def test_settings_rejects_short_redis_password() -> None:
     with pytest.raises(ValidationError) as error:
         Settings(
             _env_file=None,
+            JWT_SECRET_KEY=VALID_JWT_SECRET,
             REDIS_PASSWORD="short",
         )
 
@@ -51,6 +64,7 @@ def test_settings_rejects_invalid_redis_config(field: str, value: int) -> None:
     with pytest.raises(ValidationError) as error:
         Settings(
             _env_file=None,
+            JWT_SECRET_KEY=VALID_JWT_SECRET,
             REDIS_PASSWORD=VALID_REDIS_PASSWORD,
             **{field: value},
         )
@@ -61,6 +75,7 @@ def test_settings_rejects_invalid_redis_config(field: str, value: int) -> None:
 def test_settings_loads_login_rate_limit_config() -> None:
     settings = Settings(
         _env_file=None,
+        JWT_SECRET_KEY=VALID_JWT_SECRET,
         REDIS_PASSWORD=VALID_REDIS_PASSWORD,
         LOGIN_RATE_LIMIT_MAX_ATTEMPTS=10,
         LOGIN_RATE_LIMIT_WINDOW_SECONDS=120,
@@ -81,6 +96,7 @@ def test_settings_rejects_invalid_login_rate_limit_config(field: str) -> None:
     with pytest.raises(ValidationError) as error:
         Settings(
             _env_file=None,
+            JWT_SECRET_KEY=VALID_JWT_SECRET,
             REDIS_PASSWORD=VALID_REDIS_PASSWORD,
             **{field: 0},
         )
@@ -91,6 +107,7 @@ def test_settings_rejects_invalid_login_rate_limit_config(field: str) -> None:
 def test_settings_loads_session_expiration_config() -> None:
     settings = Settings(
         _env_file=None,
+        JWT_SECRET_KEY=VALID_JWT_SECRET,
         REDIS_PASSWORD=VALID_REDIS_PASSWORD,
         SESSION_EXPIRATION_MODE="sliding",
         SESSION_TTL_DAYS=7,
@@ -106,6 +123,7 @@ def test_settings_rejects_sliding_ttl_above_absolute_max() -> None:
     with pytest.raises(ValidationError) as error:
         Settings(
             _env_file=None,
+            JWT_SECRET_KEY=VALID_JWT_SECRET,
             REDIS_PASSWORD=VALID_REDIS_PASSWORD,
             SESSION_EXPIRATION_MODE="sliding",
             SESSION_TTL_DAYS=30,
@@ -119,95 +137,3 @@ def test_settings_rejects_sliding_ttl_above_absolute_max() -> None:
         "SESSION_ABSOLUTE_MAX_DAYS must be greater than or equal"
         in validation_error["msg"]
     )
-
-
-def test_settings_loads_jwt_key_ring(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("JWT_ACTIVE_KEY_ID")
-    monkeypatch.delenv("JWT_SIGNING_KEYS")
-
-    second_secret = "test-only-jwt-secret-key-v2-32-characters"
-
-    settings = Settings(
-        _env_file=None,
-        JWT_ACTIVE_KEY_ID="v2",
-        JWT_SIGNING_KEYS={
-            "v1": VALID_JWT_SECRET,
-            "v2": second_secret,
-        },
-        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
-    )
-
-    assert settings.JWT_ACTIVE_KEY_ID == "v2"
-    assert set(settings.JWT_SIGNING_KEYS) == {"v1", "v2"}
-    assert settings.JWT_SIGNING_KEYS["v2"].get_secret_value() == second_secret
-    assert str(settings.JWT_SIGNING_KEYS["v2"]) == "**********"
-
-
-def test_settings_rejects_active_jwt_key_missing_from_key_ring(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("JWT_ACTIVE_KEY_ID")
-    monkeypatch.delenv("JWT_SIGNING_KEYS")
-
-    with pytest.raises(ValidationError) as error:
-        Settings(
-            _env_file=None,
-            JWT_ACTIVE_KEY_ID="v2",
-            JWT_SIGNING_KEYS={
-                "v1": VALID_JWT_SECRET,
-            },
-            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
-        )
-
-    validation_error = error.value.errors()[0]
-
-    assert validation_error["loc"] == ()
-    assert "JWT_ACTIVE_KEY_ID must exist in JWT_SIGNING_KEYS" in validation_error["msg"]
-
-
-def test_settings_rejects_short_jwt_signing_secret(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("JWT_ACTIVE_KEY_ID")
-    monkeypatch.delenv("JWT_SIGNING_KEYS")
-
-    with pytest.raises(ValidationError) as error:
-        Settings(
-            _env_file=None,
-            JWT_ACTIVE_KEY_ID="v1",
-            JWT_SIGNING_KEYS={
-                "v1": "short-secret",
-            },
-            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
-        )
-
-    assert error.value.errors()[0]["loc"] == (
-        "JWT_SIGNING_KEYS",
-        "v1",
-    )
-
-
-def test_settings_rejects_invalid_jwt_key_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("JWT_ACTIVE_KEY_ID")
-    monkeypatch.delenv("JWT_SIGNING_KEYS")
-
-    with pytest.raises(ValidationError) as error:
-        Settings(
-            _env_file=None,
-            JWT_ACTIVE_KEY_ID="invalid key",
-            JWT_SIGNING_KEYS={
-                "invalid key": VALID_JWT_SECRET,
-            },
-            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
-        )
-
-    validation_locations = {
-        validation_error["loc"] for validation_error in error.value.errors()
-    }
-
-    assert ("JWT_ACTIVE_KEY_ID",) in validation_locations
-    assert any(location[0] == "JWT_SIGNING_KEYS" for location in validation_locations)

@@ -35,7 +35,7 @@ MySQL 继续保存 User 等长期事实。Redis Session 是可过期的认证状
 ```text
 Key: auth:session:{session_id}
 Type: Hash
-TTL: 与 Session 当前的 expires_at 一致
+TTL: 与 Session 的绝对过期时间一致
 ```
 
 Hash 字段：
@@ -108,11 +108,11 @@ stateDiagram-v2
 
 - 创建：登录成功后创建独立 Session Hash，并加入用户 Sorted Set。
 - 使用：Refresh 先验证 JWT，再读取 Session 并比较 Token 摘要。
-- 撤销：当前设备 Logout 使用 Lua 原子比较用户与 Refresh Token Hash，匹配时同时 `DEL` Hash 和 `ZREM` 索引成员。
+- 撤销：当前设备 Logout 使用事务同时 `DEL` Hash 和 `ZREM` 索引成员。
 - 过期：TTL 自动删除 Hash；用户索引中的失效成员在列表读取时懒清理。
 - 故障：Redis 无法完成必要的 Session 校验或写入时失败关闭，不绕过服务端登录状态。
 
-当前默认使用固定过期模式，此时 `expires_at` 与 `absolute_expires_at` 相同，`last_used_at` 的变化不延长二者。Sliding 模式可以通过配置启用，但每次延长都必须同时更新 Refresh Token `exp`、Session `expires_at` 和 Redis TTL，并且不能超过 `absolute_expires_at`。
+当前默认使用固定过期模式，此时 `expires_at` 与 `absolute_expires_at` 相同，`last_used_at` 的变化不延长二者。数据模型为 Sliding 模式保留独立最终上限，但是否正式启用由 Story 2.6 安全 Review 决定。
 
 ## 6. 设计时序
 
@@ -155,8 +155,7 @@ sequenceDiagram
     participant A as Auth Service
     participant R as Redis
     C->>A: Logout current Session
-    A->>R: Atomically compare current token hash
-    R->>R: DEL Session Hash + ZREM user index
+    A->>R: DEL Session Hash + ZREM user index
     A-->>C: Logout success
     C->>C: Delete local tokens
 ```

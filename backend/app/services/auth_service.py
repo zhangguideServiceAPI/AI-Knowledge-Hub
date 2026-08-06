@@ -26,8 +26,6 @@ from app.core.security import (
     verify_password,
 )
 from app.db.repositories.session_repository import (
-    SessionDeletion,
-    SessionDeletionResult,
     SessionRecord,
     SessionRepository,
     SessionRotation,
@@ -85,16 +83,18 @@ class AuthService:
     ) -> TokenPairResponse:
         email = str(request.email).strip().lower()
 
-        if not rate_limiter.reserve_attempt(email):
+        if rate_limiter.is_limited(email):
             raise LoginRateLimitExceededError()
 
         user_model = self._user_repository.get_by_email(email)
         # 这是为了防止攻击者通过响应时间判断邮箱是否已经注册，也叫用户枚举攻击。
         if user_model is None:
             verify_password(request.password, DUMMY_PASSWORD_HASH)
+            rate_limiter.record_failure(email)
             raise InvalidCredentialsError()
 
         if not verify_password(request.password, user_model.password_hash):
+            rate_limiter.record_failure(email)
             raise InvalidCredentialsError()
 
         if user_model.status != UserStatus.ACTIVE:
@@ -222,14 +222,21 @@ class AuthService:
         session_repository: SessionRepository,
     ) -> None:
         claims = decode_refresh_token(request.refresh_token)
+        session_record = session_repository.get(claims.session_id)
 
-        result = session_repository.delete_if_matches(
-            SessionDeletion(
-                session_id=claims.session_id,
-                user_id=claims.user_id,
-                expected_refresh_token_hash=hash_refresh_token(request.refresh_token),
-            )
-        )
+        # Session 已不存在时，服务端已经达到登出状态，重复请求仍视为成功。
+        if session_record is None:
+            return
 
-        if result is SessionDeletionResult.SESSION_MISMATCH:
+        if session_record.user_id != claims.user_id:
             raise InvalidRefreshTokenError()
+
+        if session_record.refresh_token_hash != hash_refresh_token(
+            request.refresh_token
+        ):
+            raise InvalidRefreshTokenError()
+
+        session_repository.delete(
+            user_id=claims.user_id,
+            session_id=claims.session_id,
+        )

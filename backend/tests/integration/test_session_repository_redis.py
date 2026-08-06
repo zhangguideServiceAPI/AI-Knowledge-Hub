@@ -8,8 +8,6 @@ import pytest
 
 from app.db.redis_client import create_redis_client
 from app.db.repositories.session_repository import (
-    SessionDeletion,
-    SessionDeletionResult,
     SessionRecord,
     SessionRepository,
     SessionRotation,
@@ -223,72 +221,5 @@ def test_delete_removes_session_and_user_index_in_real_redis() -> None:
         assert client.zscore(index_key, session_id) is None
     finally:
         # 即使断言提前失败，也只清理本测试创建的唯一 Session。
-        repository.delete(user_id, session_id)
-        client.close()
-
-
-def test_delete_if_matches_requires_current_hash_in_real_redis() -> None:
-    client = create_redis_client()
-    repository = SessionRepository(client)
-
-    session_id = f"atomic-logout-test-{uuid4().hex}"
-    user_id = 9_999_999
-    session_key = f"auth:session:{session_id}"
-    index_key = f"auth:user:{user_id}:sessions"
-    now = int(time())
-
-    try:
-        repository.create(
-            SessionRecord(
-                session_id=session_id,
-                user_id=user_id,
-                refresh_token_hash="a" * 64,
-                created_at=now,
-                last_used_at=now,
-                expires_at=now + 60,
-                absolute_expires_at=now + 60,
-            ),
-            ttl_seconds=60,
-        )
-
-        rotation_result = repository.rotate(
-            SessionRotation(
-                session_id=session_id,
-                user_id=user_id,
-                expected_refresh_token_hash="a" * 64,
-                new_refresh_token_hash="b" * 64,
-                rotated_at=now,
-                expires_at=now + 60,
-                ttl_seconds=60,
-            )
-        )
-
-        stale_logout_result = repository.delete_if_matches(
-            SessionDeletion(
-                session_id=session_id,
-                user_id=user_id,
-                expected_refresh_token_hash="a" * 64,
-            )
-        )
-
-        stored_session = client.hgetall(session_key)
-
-        assert rotation_result is SessionRotationResult.SUCCESS
-        assert stale_logout_result is SessionDeletionResult.SESSION_MISMATCH
-        assert stored_session["refresh_token_hash"] == "b" * 64
-        assert client.zscore(index_key, session_id) == float(now)
-
-        current_logout_result = repository.delete_if_matches(
-            SessionDeletion(
-                session_id=session_id,
-                user_id=user_id,
-                expected_refresh_token_hash="b" * 64,
-            )
-        )
-
-        assert current_logout_result is SessionDeletionResult.SUCCESS
-        assert client.exists(session_key) == 0
-        assert client.zscore(index_key, session_id) is None
-    finally:
         repository.delete(user_id, session_id)
         client.close()

@@ -31,30 +31,6 @@ def _encode_password(password: str) -> bytes:
     return password_bytes
 
 
-def _get_active_jwt_signing_key() -> tuple[str, str]:
-    """返回新 Token 使用的 Key ID 和 HS256 Secret。"""
-    key_id = settings.JWT_ACTIVE_KEY_ID
-    secret = settings.JWT_SIGNING_KEYS[key_id].get_secret_value()
-
-    return key_id, secret
-
-
-def _get_jwt_verification_secret(token: str) -> str:
-    """根据 JWT Header 的 kid 选择服务端保存的验证密钥。"""
-    header = jwt.get_unverified_header(token)
-    key_id = header.get("kid")
-
-    if not isinstance(key_id, str) or not key_id:
-        raise JWTError("JWT kid is missing or invalid.")
-
-    signing_secret = settings.JWT_SIGNING_KEYS.get(key_id)
-
-    if signing_secret is None:
-        raise JWTError("JWT kid is unknown.")
-
-    return signing_secret.get_secret_value()
-
-
 def hash_password(password: str) -> str:
     password_bytes = _encode_password(password)
     password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
@@ -81,7 +57,6 @@ def create_access_token(
     expires_at = issued_at + timedelta(
         minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
     )
-    key_id, signing_secret = _get_active_jwt_signing_key()
 
     if session_expires_at is not None:
         expires_at = min(
@@ -98,18 +73,16 @@ def create_access_token(
 
     return jwt.encode(
         payload,
-        signing_secret,
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithm=settings.JWT_ALGORITHM,
-        headers={"kid": key_id},
     )
 
 
 def decode_access_token(token: str) -> int:
     try:
-        verification_secret = _get_jwt_verification_secret(token)
         payload = jwt.decode(
             token,
-            verification_secret,
+            settings.JWT_SECRET_KEY.get_secret_value(),
             algorithms=[settings.JWT_ALGORITHM],
             options={
                 "require_sub": True,
@@ -213,7 +186,7 @@ def create_refresh_token(
         expires_at: 当前 Session 的过期时间，Unix 秒，对应 JWT 的 exp。
     """
     issued_at = datetime.now(timezone.utc)
-    key_id, signing_secret = _get_active_jwt_signing_key()
+
     payload = {
         "sub": str(user_id),
         "type": REFRESH_TOKEN_TYPE,
@@ -226,9 +199,8 @@ def create_refresh_token(
 
     return jwt.encode(
         payload,
-        signing_secret,
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithm=settings.JWT_ALGORITHM,
-        headers={"kid": key_id},
     )
 
 
@@ -239,10 +211,9 @@ def decode_refresh_token(token: str) -> RefreshTokenClaims:
         token: 客户端提交的原始 Refresh JWT。
     """
     try:
-        verification_secret = _get_jwt_verification_secret(token)
         payload = jwt.decode(
             token,
-            verification_secret,
+            settings.JWT_SECRET_KEY.get_secret_value(),
             algorithms=[settings.JWT_ALGORITHM],
             options={
                 "require_sub": True,

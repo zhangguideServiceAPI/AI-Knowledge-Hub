@@ -12,6 +12,70 @@ LOGIN_RATE_LIMIT_KEY = (
 )
 
 
+def test_record_failure_sets_expiration_on_first_failure() -> None:
+    identifier = "user@example.com"
+    key = LOGIN_RATE_LIMIT_KEY
+
+    client = Mock(spec=Redis)
+    pipeline = Mock()
+    client.pipeline.return_value = pipeline
+    pipeline.execute.return_value = [1, True]
+    limiter = LoginRateLimiter(client, window_seconds=60, max_attempts=5)
+
+    attempts = limiter.record_failure(identifier)
+
+    assert attempts == 1
+    client.pipeline.assert_called_once_with(transaction=True)
+    pipeline.incr.assert_called_once_with(key)
+    pipeline.expire.assert_called_once_with(key, 60, nx=True)
+    pipeline.execute.assert_called_once_with()
+
+
+def test_record_failure_does_not_reset_expiration_after_first_failure() -> None:
+    identifier = "user@example.com"
+    key = LOGIN_RATE_LIMIT_KEY
+
+    client = Mock(spec=Redis)
+    pipeline = Mock()
+    client.pipeline.return_value = pipeline
+    pipeline.execute.return_value = [2, False]
+
+    limiter = LoginRateLimiter(client, window_seconds=60, max_attempts=5)
+
+    attempts = limiter.record_failure(identifier)
+
+    assert attempts == 2
+    pipeline.incr.assert_called_once_with(key)
+    pipeline.expire.assert_called_once_with(key, 60, nx=True)
+    pipeline.execute.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("stored_attempts", "expected"),
+    [
+        (None, False),
+        ("4", False),
+        ("5", True),
+    ],
+)
+def test_is_limited_checks_current_attempt_count(
+    stored_attempts: str | None,
+    expected: bool,
+) -> None:
+    identifier = "user@example.com"
+    key = LOGIN_RATE_LIMIT_KEY
+
+    client = Mock(spec=Redis)
+    client.get.return_value = stored_attempts
+
+    limiter = LoginRateLimiter(client, window_seconds=60, max_attempts=5)
+
+    result = limiter.is_limited(identifier)
+
+    assert result is expected
+    client.get.assert_called_once_with(key)
+
+
 def test_reset_deletes_failure_counter() -> None:
     identifier = "user@example.com"
     key = LOGIN_RATE_LIMIT_KEY
@@ -30,8 +94,7 @@ def test_reset_deletes_failure_counter() -> None:
 
 def test_identifier_is_normalized_before_hashing() -> None:
     client = Mock(spec=Redis)
-    pipeline = client.pipeline.return_value
-    pipeline.execute.return_value = [1, True]
+    client.get.return_value = None
 
     limiter = LoginRateLimiter(
         client,
@@ -39,42 +102,6 @@ def test_identifier_is_normalized_before_hashing() -> None:
         max_attempts=5,
     )
 
-    limiter.reserve_attempt("  USER@example.com  ")
+    limiter.is_limited("  USER@example.com  ")
 
-    pipeline.incr.assert_called_once_with(LOGIN_RATE_LIMIT_KEY)
-
-
-@pytest.mark.parametrize(
-    ("attempts", "expected"),
-    [
-        (1, True),
-        (5, True),
-        (6, False),
-    ],
-)
-def test_reserve_attempt_enforces_atomic_limit(
-    attempts: int,
-    expected: bool,
-) -> None:
-    client = Mock(spec=Redis)
-    pipeline = Mock()
-    client.pipeline.return_value = pipeline
-    pipeline.execute.return_value = [attempts, False]
-
-    limiter = LoginRateLimiter(
-        client,
-        window_seconds=60,
-        max_attempts=5,
-    )
-
-    result = limiter.reserve_attempt("user@example.com")
-
-    assert result is expected
-    client.pipeline.assert_called_once_with(transaction=True)
-    pipeline.incr.assert_called_once_with(LOGIN_RATE_LIMIT_KEY)
-    pipeline.expire.assert_called_once_with(
-        LOGIN_RATE_LIMIT_KEY,
-        60,
-        nx=True,
-    )
-    pipeline.execute.assert_called_once_with()
+    client.get.assert_called_once_with(LOGIN_RATE_LIMIT_KEY)

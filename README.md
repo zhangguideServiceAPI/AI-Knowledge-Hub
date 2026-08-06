@@ -28,13 +28,11 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - `GET /users/me` 当前用户接口与 Bearer 认证依赖
 - 全局业务异常到 HTTP 响应的统一映射
 - Story 2.0 认证体系演进学习与架构文档
-- Redis 固定窗口原子登录准入、HTTP 429 和 Redis 故障关闭策略
+- Redis 固定窗口登录限流、HTTP 429 和 Redis 故障关闭策略
 - Redis Session Repository、TTL、多设备 Sorted Set 索引和失效索引清理
 - Refresh JWT、固定/Sliding 过期计算和 Redis Lua 原子 Rotation
-- 当前设备原子 Logout、Refresh Replay 撤销和客户端单航班契约
-- JWT `kid`、Active Key 与 Key Ring 密钥轮换
 
-Story 2.6 Authentication Security 已完成。登录、Refresh Rotation、Replay 撤销、原子 Logout、固定/Sliding 过期和 JWT 密钥轮换已通过单元、API 与真实 Redis 验证，下一步进入 Story 2.7 Testing，系统化审计认证测试矩阵。
+Story 2.4 Logout 已完成，当前推进 Story 2.5 Client Refresh Contract。登录、Refresh Rotation、Replay 撤销和当前设备 Session 撤销已通过 Mock、API 与真实 Redis 验证，下一步设计客户端单航班 Refresh 与一次重试状态机。
 
 ## 技术栈
 
@@ -93,10 +91,8 @@ cp backend/.env.example backend/.env
 cp infra/.env.example infra/.env
 ```
 
-示例密码只用于本地开发。使用 `openssl rand -hex 32` 分别生成 JWT
-签名密钥和 `REDIS_PASSWORD`。在 `backend/.env` 中设置
-`JWT_ACTIVE_KEY_ID=v1`，并将签名密钥写入
-`JWT_SIGNING_KEYS={"v1":"<generated-secret>"}`。禁止提交真实 `.env` 文件。
+示例密码只用于本地开发。使用 `openssl rand -hex 32` 分别生成
+`JWT_SECRET_KEY` 和 `REDIS_PASSWORD`，并只写入 `backend/.env`。禁止提交真实 `.env` 文件。
 
 ### 2. 安装后端依赖
 

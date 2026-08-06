@@ -8,12 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import decode_refresh_token, hash_refresh_token
-from app.db.repositories.session_repository import (
-    SessionDeletion,
-    SessionDeletionResult,
-    SessionRotationResult,
-)
+from app.core.security import decode_refresh_token
+from app.db.repositories.session_repository import SessionRotationResult
 from app.models.user import User
 
 
@@ -73,12 +69,12 @@ def test_login_returns_token_pair(client: TestClient) -> None:
     response_data = response.json()
     access_payload = jwt.decode(
         response_data["access_token"],
-        settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
     refresh_payload = jwt.decode(
         response_data["refresh_token"],
-        settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
 
@@ -121,7 +117,7 @@ def test_login_returns_too_many_requests_when_rate_limited(
     client: TestClient,
     login_rate_limiter: Mock,
 ) -> None:
-    login_rate_limiter.reserve_attempt.return_value = False
+    login_rate_limiter.is_limited.return_value = True
 
     response = client.post(
         "/auth/login",
@@ -135,14 +131,14 @@ def test_login_returns_too_many_requests_when_rate_limited(
     assert response.json() == {
         "detail": "Too many login attempts. Try again later.",
     }
-    login_rate_limiter.reserve_attempt.assert_called_once_with("user@example.com")
+    login_rate_limiter.is_limited.assert_called_once_with("user@example.com")
 
 
 def test_login_returns_service_unavailable_when_rate_limit_check_fails(
     client: TestClient,
     login_rate_limiter: Mock,
 ) -> None:
-    login_rate_limiter.reserve_attempt.side_effect = RedisError("test Redis outage")
+    login_rate_limiter.is_limited.side_effect = RedisError("test Redis outage")
 
     response = client.post(
         "/auth/login",
@@ -375,9 +371,10 @@ def test_logout_returns_no_content_and_deletes_current_session(
     login_response = client.post("/auth/login", json=credentials)
     refresh_token = login_response.json()["refresh_token"]
     refresh_claims = decode_refresh_token(refresh_token)
+    session_record = session_repository.create.call_args.args[0]
 
     session_repository.reset_mock()
-    session_repository.delete_if_matches.return_value = SessionDeletionResult.SUCCESS
+    session_repository.get.return_value = session_record
 
     response = client.post(
         "/auth/logout",
@@ -386,15 +383,11 @@ def test_logout_returns_no_content_and_deletes_current_session(
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""
-    session_repository.delete_if_matches.assert_called_once_with(
-        SessionDeletion(
-            session_id=refresh_claims.session_id,
-            user_id=refresh_claims.user_id,
-            expected_refresh_token_hash=hash_refresh_token(refresh_token),
-        )
+    session_repository.get.assert_called_once_with(refresh_claims.session_id)
+    session_repository.delete.assert_called_once_with(
+        user_id=refresh_claims.user_id,
+        session_id=refresh_claims.session_id,
     )
-    session_repository.get.assert_not_called()
-    session_repository.delete.assert_not_called()
 
 
 def test_logout_returns_no_content_when_session_is_already_missing(
@@ -408,12 +401,9 @@ def test_logout_returns_no_content_when_session_is_already_missing(
     client.post("/auth/register", json=credentials)
     login_response = client.post("/auth/login", json=credentials)
     refresh_token = login_response.json()["refresh_token"]
-    refresh_claims = decode_refresh_token(refresh_token)
 
     session_repository.reset_mock()
-    session_repository.delete_if_matches.return_value = (
-        SessionDeletionResult.SESSION_NOT_FOUND
-    )
+    session_repository.get.return_value = None
 
     response = client.post(
         "/auth/logout",
@@ -422,14 +412,6 @@ def test_logout_returns_no_content_when_session_is_already_missing(
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""
-    session_repository.delete_if_matches.assert_called_once_with(
-        SessionDeletion(
-            session_id=refresh_claims.session_id,
-            user_id=refresh_claims.user_id,
-            expected_refresh_token_hash=hash_refresh_token(refresh_token),
-        )
-    )
-    session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
 
 
@@ -446,37 +428,8 @@ def test_logout_returns_unauthorized_for_invalid_token(
     assert response.json() == {
         "detail": "Invalid or expired refresh token.",
     }
-    session_repository.delete_if_matches.assert_not_called()
     session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
-
-
-def test_logout_returns_unauthorized_for_session_mismatch(
-    client: TestClient,
-    session_repository: Mock,
-) -> None:
-    credentials = {
-        "email": "user@example.com",
-        "password": "password123",
-    }
-    client.post("/auth/register", json=credentials)
-    login_response = client.post("/auth/login", json=credentials)
-    refresh_token = login_response.json()["refresh_token"]
-
-    session_repository.reset_mock()
-    session_repository.delete_if_matches.return_value = (
-        SessionDeletionResult.SESSION_MISMATCH
-    )
-
-    response = client.post(
-        "/auth/logout",
-        json={"refresh_token": refresh_token},
-    )
-
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {
-        "detail": "Invalid or expired refresh token.",
-    }
 
 
 def test_logout_returns_service_unavailable_when_redis_is_down(
@@ -492,7 +445,7 @@ def test_logout_returns_service_unavailable_when_redis_is_down(
     refresh_token = login_response.json()["refresh_token"]
 
     session_repository.reset_mock()
-    session_repository.delete_if_matches.side_effect = RedisError("test Redis outage")
+    session_repository.get.side_effect = RedisError("test Redis outage")
 
     response = client.post(
         "/auth/logout",
@@ -503,5 +456,4 @@ def test_logout_returns_service_unavailable_when_redis_is_down(
     assert response.json() == {
         "detail": "Authentication service is temporarily unavailable.",
     }
-    session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()

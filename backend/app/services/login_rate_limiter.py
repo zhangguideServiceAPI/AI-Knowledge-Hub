@@ -9,18 +9,25 @@ class LoginRateLimiter:
         self._window_seconds = window_seconds
         self._max_attempts = max_attempts
 
-    def reserve_attempt(self, identifier: str) -> bool:
+    def record_failure(self, identifier: str) -> int:
         key = self._build_key(identifier)
 
-        # 每个并发请求先原子递增，再根据自己获得的计数决定是否准入。
         pipeline = self._client.pipeline(transaction=True)
         pipeline.incr(key)
         pipeline.expire(key, self._window_seconds, nx=True)
 
         result = pipeline.execute()
-        attempts = int(result[0])
+        attempts = result[0]
 
-        return attempts <= self._max_attempts
+        return int(attempts)
+
+    def is_limited(self, identifier: str) -> bool:
+        attempts = self._client.get(self._build_key(identifier))
+
+        if attempts is None:
+            return False
+
+        return int(attempts) >= self._max_attempts
 
     def reset(self, identifier: str) -> None:
         self._client.delete(self._build_key(identifier))

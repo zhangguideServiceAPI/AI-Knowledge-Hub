@@ -4,8 +4,6 @@ import pytest
 from redis import Redis
 
 from app.db.repositories.session_repository import (
-    SessionDeletion,
-    SessionDeletionResult,
     SessionRecord,
     SessionRepository,
     SessionRotation,
@@ -95,60 +93,6 @@ def test_rotate_returns_success_when_current_hash_matches() -> None:
         603_800,
         "abc",
     )
-
-
-@pytest.mark.parametrize(
-    ("redis_result", "expected_result"),
-    [
-        (1, SessionDeletionResult.SUCCESS),
-        (0, SessionDeletionResult.SESSION_NOT_FOUND),
-        (-1, SessionDeletionResult.SESSION_MISMATCH),
-    ],
-)
-def test_delete_if_matches_maps_redis_result(
-    redis_result: int,
-    expected_result: SessionDeletionResult,
-) -> None:
-    client = Mock(spec=Redis)
-    client.eval.return_value = redis_result
-    repository = SessionRepository(client)
-
-    deletion = SessionDeletion(
-        session_id="abc",
-        user_id=42,
-        expected_refresh_token_hash="a" * 64,
-    )
-
-    result = repository.delete_if_matches(deletion)
-
-    assert result is expected_result
-    client.eval.assert_called_once_with(
-        ANY,
-        2,
-        "auth:session:abc",
-        "auth:user:42:sessions",
-        "42",
-        "a" * 64,
-        "abc",
-    )
-
-
-def test_delete_if_matches_raises_when_script_returns_unexpected_result() -> None:
-    client = Mock(spec=Redis)
-    client.eval.return_value = 99
-    repository = SessionRepository(client)
-
-    deletion = SessionDeletion(
-        session_id="abc",
-        user_id=42,
-        expected_refresh_token_hash="a" * 64,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="Unexpected session deletion result: 99",
-    ):
-        repository.delete_if_matches(deletion)
 
 
 def test_create_stores_session_hash_with_ttl() -> None:

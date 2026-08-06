@@ -3,7 +3,6 @@ from unittest.mock import Mock
 
 import pytest
 from jose import jwt
-from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,8 +25,6 @@ from app.core.security import (
     verify_password,
 )
 from app.db.repositories.session_repository import (
-    SessionDeletion,
-    SessionDeletionResult,
     SessionRecord,
     SessionRotationResult,
 )
@@ -144,7 +141,7 @@ def test_login_returns_token_pair_and_creates_session(
 
     payload = jwt.decode(
         response.access_token,
-        settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
 
@@ -194,8 +191,7 @@ def test_login_rejects_unknown_email(
             session_repository,
         )
 
-    login_rate_limiter.reserve_attempt.assert_called_once_with("unknown@example.com")
-    login_rate_limiter.reset.assert_not_called()
+    login_rate_limiter.record_failure.assert_called_once_with("unknown@example.com")
 
 
 def test_login_rejects_rate_limited_identifier(
@@ -203,7 +199,7 @@ def test_login_rejects_rate_limited_identifier(
     login_rate_limiter: Mock,
     session_repository: Mock,
 ) -> None:
-    login_rate_limiter.reserve_attempt.return_value = False
+    login_rate_limiter.is_limited.return_value = True
     service = AuthService(session)
 
     with pytest.raises(LoginRateLimitExceededError):
@@ -216,7 +212,8 @@ def test_login_rejects_rate_limited_identifier(
             session_repository,
         )
 
-    login_rate_limiter.reserve_attempt.assert_called_once_with("user@example.com")
+    login_rate_limiter.is_limited.assert_called_once_with("user@example.com")
+    login_rate_limiter.record_failure.assert_not_called()
     login_rate_limiter.reset.assert_not_called()
 
 
@@ -275,8 +272,7 @@ def test_login_rejects_wrong_password(
             session_repository,
         )
 
-    login_rate_limiter.reserve_attempt.assert_called_once_with("user@example.com")
-    login_rate_limiter.reset.assert_not_called()
+    login_rate_limiter.record_failure.assert_called_once_with("user@example.com")
 
 
 def test_login_rejects_inactive_user(
@@ -373,29 +369,11 @@ def test_refresh_returns_rotated_token_pair(
     rotated_at = int(time())
     session_expires_at = rotated_at + 3_600
     session_id = "test-session-id"
-
-    first_secret = "first-test-signing-key-at-least-32-characters"
-    second_secret = "second-test-signing-key-at-least-32-characters"
-
-    monkeypatch.setattr(
-        settings,
-        "JWT_SIGNING_KEYS",
-        {
-            "v1": SecretStr(first_secret),
-            "v2": SecretStr(second_secret),
-        },
-    )
-    monkeypatch.setattr(settings, "JWT_ACTIVE_KEY_ID", "v1")
-
     old_refresh_token = create_refresh_token(
         user_id=user.id,
         session_id=session_id,
         expires_at=session_expires_at,
     )
-
-    old_refresh_header = jwt.get_unverified_header(old_refresh_token)
-
-    monkeypatch.setattr(settings, "JWT_ACTIVE_KEY_ID", "v2")
     old_refresh_claims = decode_refresh_token(old_refresh_token)
 
     # Redis Mock 表示当前 Session 存在，并且 Lua 原子 Rotation 成功。
@@ -417,12 +395,10 @@ def test_refresh_returns_rotated_token_pair(
         session_repository,
     )
 
-    new_refresh_header = jwt.get_unverified_header(response.refresh_token)
-    new_access_header = jwt.get_unverified_header(response.access_token)
     new_refresh_claims = decode_refresh_token(response.refresh_token)
     access_payload = jwt.decode(
         response.access_token,
-        second_secret,
+        settings.JWT_SECRET_KEY.get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
     rotation = session_repository.rotate.call_args.args[0]
@@ -450,10 +426,6 @@ def test_refresh_returns_rotated_token_pair(
     assert rotation.rotated_at == rotated_at
     assert rotation.expires_at == session_expires_at
     assert rotation.ttl_seconds == 3_600
-
-    assert old_refresh_header["kid"] == "v1"
-    assert new_refresh_header["kid"] == "v2"
-    assert new_access_header["kid"] == "v2"
 
 
 @pytest.mark.parametrize(
@@ -550,7 +522,15 @@ def test_logout_deletes_current_session(
         session_id=session_id,
         expires_at=int(time()) + 3_600,
     )
-    session_repository.delete_if_matches.return_value = SessionDeletionResult.SUCCESS
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=user_id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        created_at=int(time()) - 600,
+        last_used_at=int(time()) - 60,
+        expires_at=int(time()) + 3_600,
+        absolute_expires_at=int(time()) + 3_600,
+    )
 
     result = service.logout(
         LogoutRequest(refresh_token=refresh_token),
@@ -558,15 +538,11 @@ def test_logout_deletes_current_session(
     )
 
     assert result is None
-    session_repository.delete_if_matches.assert_called_once_with(
-        SessionDeletion(
-            session_id=session_id,
-            user_id=user_id,
-            expected_refresh_token_hash=hash_refresh_token(refresh_token),
-        )
+    session_repository.get.assert_called_once_with(session_id)
+    session_repository.delete.assert_called_once_with(
+        user_id=user_id,
+        session_id=session_id,
     )
-    session_repository.get.assert_not_called()
-    session_repository.delete.assert_not_called()
     session_repository.create.assert_not_called()
     session_repository.rotate.assert_not_called()
 
@@ -582,9 +558,7 @@ def test_logout_succeeds_when_session_is_already_missing(
         session_id=session_id,
         expires_at=int(time()) + 3_600,
     )
-    session_repository.delete_if_matches.return_value = (
-        SessionDeletionResult.SESSION_NOT_FOUND
-    )
+    session_repository.get.return_value = None
 
     result = service.logout(
         LogoutRequest(refresh_token=refresh_token),
@@ -592,18 +566,13 @@ def test_logout_succeeds_when_session_is_already_missing(
     )
 
     assert result is None
-    session_repository.delete_if_matches.assert_called_once_with(
-        SessionDeletion(
-            session_id=session_id,
-            user_id=42,
-            expected_refresh_token_hash=hash_refresh_token(refresh_token),
-        )
-    )
-    session_repository.get.assert_not_called()
+    session_repository.get.assert_called_once_with(session_id)
     session_repository.delete.assert_not_called()
 
 
+@pytest.mark.parametrize("mismatch", ["user_id", "refresh_token_hash"])
 def test_logout_rejects_session_mismatch(
+    mismatch: str,
     session: Session,
     session_repository: Mock,
 ) -> None:
@@ -615,8 +584,18 @@ def test_logout_rejects_session_mismatch(
         session_id=session_id,
         expires_at=int(time()) + 3_600,
     )
-    session_repository.delete_if_matches.return_value = (
-        SessionDeletionResult.SESSION_MISMATCH
+    session_repository.get.return_value = SessionRecord(
+        session_id=session_id,
+        user_id=99 if mismatch == "user_id" else user_id,
+        refresh_token_hash=(
+            "different-token-hash"
+            if mismatch == "refresh_token_hash"
+            else hash_refresh_token(refresh_token)
+        ),
+        created_at=int(time()) - 600,
+        last_used_at=int(time()) - 60,
+        expires_at=int(time()) + 3_600,
+        absolute_expires_at=int(time()) + 3_600,
     )
 
     with pytest.raises(InvalidRefreshTokenError):
@@ -625,65 +604,4 @@ def test_logout_rejects_session_mismatch(
             session_repository,
         )
 
-    session_repository.delete_if_matches.assert_called_once_with(
-        SessionDeletion(
-            session_id=session_id,
-            user_id=user_id,
-            expected_refresh_token_hash=hash_refresh_token(refresh_token),
-        )
-    )
-    session_repository.get.assert_not_called()
     session_repository.delete.assert_not_called()
-
-
-def test_refresh_extends_expiration_in_sliding_mode(
-    session: Session,
-    session_repository: Mock,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = AuthService(session)
-    user = service.register(
-        RegisterRequest(
-            email="user@example.com",
-            password="password123",
-        )
-    )
-    rotated_at = int(time())
-    current_expires_at = rotated_at + 3_600
-    absolute_expires_at = rotated_at + 30 * 86_400
-    expected_expires_at = rotated_at + 7 * 86_400
-    session_id = "sliding-session-id"
-
-    old_refresh_token = create_refresh_token(
-        user_id=user.id,
-        session_id=session_id,
-        expires_at=current_expires_at,
-    )
-
-    session_repository.get.return_value = SessionRecord(
-        session_id=session_id,
-        user_id=user.id,
-        refresh_token_hash=hash_refresh_token(old_refresh_token),
-        created_at=rotated_at - 86_400,
-        last_used_at=rotated_at - 86_400,
-        expires_at=current_expires_at,
-        absolute_expires_at=absolute_expires_at,
-    )
-    session_repository.rotate.return_value = SessionRotationResult.SUCCESS
-
-    monkeypatch.setattr(settings, "SESSION_EXPIRATION_MODE", "sliding")
-    monkeypatch.setattr(settings, "SESSION_TTL_DAYS", 7)
-    monkeypatch.setattr("app.services.auth_service.time", lambda: rotated_at)
-
-    response = service.refresh(
-        RefreshRequest(refresh_token=old_refresh_token),
-        session_repository,
-    )
-
-    new_refresh_claims = decode_refresh_token(response.refresh_token)
-    rotation = session_repository.rotate.call_args.args[0]
-
-    assert rotation.expires_at == expected_expires_at
-    assert rotation.ttl_seconds == 7 * 86_400
-    assert response.refresh_expires_in == 7 * 86_400
-    assert new_refresh_claims.expires_at == expected_expires_at
