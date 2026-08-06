@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 至 Story 3.5 已完成（2026-08-04）；当前进入 Story 3.6。
+Story 3.0 至 Story 3.4 已完成（2026-08-04）；当前进入 Story 3.5。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Story 3.6 Download, Permission & Delete
-Current Goal: Expose owner-only file access while keeping Provider details internal
-Current Step: Design metadata query, streaming download and idempotent delete
+Current Story: Story 3.5 Secure Upload Service & API
+Current Goal: Combine HTTP streaming, StorageProvider and File Metadata safely
+Current Step: Review the complete upload orchestration, validation and compensation flow
 ```
 
 ## Sprint 定位
@@ -586,16 +586,6 @@ Story 3.2 必须明确：
 - 大小限制由实际 Stream 字节证明。
 - 日志不包含文件内容、内部路径、Object Key 或未经处理的原始文件名。
 - Story Review、文档同步和 Commit 完成。
-
-### 验收记录
-
-- [x] 通过 `python-multipart` 接入 `POST /files`，认证用户 ID 由服务端依赖提供。
-- [x] 分块读取文件，校验文件名、扩展名、MIME、文件签名和实际大小，并计算 SHA-256。
-- [x] 实现 `PENDING_UPLOAD -> READY` 成功流程，以及 Provider 失败、Metadata 提交失败和补偿失败状态。
-- [x] 将 `StorageUnavailableError`、上传校验错误和内部上传错误映射到稳定 HTTP 状态码。
-- [x] 添加成功、拒绝、Provider 故障、事务补偿和 HTTP API 测试。
-- [x] 日志只记录 `user_id`、`file_id`、大小和固定失败原因，不记录内容、原始文件名、Object Key 或本地路径。
-- [x] 非集成测试通过：238 passed，10 deselected。
 
 ## Story 3.6: Download, Permission & Delete
 

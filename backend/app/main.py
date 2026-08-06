@@ -2,7 +2,6 @@ from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
 from app.api.exception_handlers import register_exception_handlers
-from app.api.files import router as files_router
 from app.api.health import router as health_router
 from app.api.user import router as user_router
 from app.core.config import settings
@@ -17,6 +16,5 @@ register_exception_handlers(app)
 logger.info("Application started")
 
 app.include_router(auth_router)
-app.include_router(files_router)
 app.include_router(health_router)
 app.include_router(user_router)
