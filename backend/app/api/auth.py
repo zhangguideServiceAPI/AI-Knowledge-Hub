@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_login_rate_limiter, get_session_repository
@@ -17,10 +17,6 @@ from app.schemas.error import ErrorResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.login_rate_limiter import LoginRateLimiter
-
-
-USER_AGENT_MAX_LENGTH = 512
-
 
 router = APIRouter(
     prefix="/auth",
@@ -71,7 +67,6 @@ def register(
 )
 def login(
     request: LoginRequest,
-    http_request: Request,
     session: Annotated[Session, Depends(get_db)],
     rate_limiter: Annotated[
         LoginRateLimiter,
@@ -82,20 +77,7 @@ def login(
         Depends(get_session_repository),
     ],
 ) -> TokenPairResponse:
-
-    ip_address = http_request.client.host if http_request.client is not None else None
-
-    user_agent = http_request.headers.get("user-agent")
-    if user_agent is not None:
-        user_agent = user_agent[:USER_AGENT_MAX_LENGTH]
-
-    return AuthService(session).login(
-        request,
-        rate_limiter,
-        session_repository,
-        ip_address=ip_address,
-        user_agent=user_agent,
-    )
+    return AuthService(session).login(request, rate_limiter, session_repository)
 
 
 @router.post(

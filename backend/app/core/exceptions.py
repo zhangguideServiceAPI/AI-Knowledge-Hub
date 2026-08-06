@@ -20,7 +20,3 @@ class InvalidAccessTokenError(Exception):
 
 class InvalidRefreshTokenError(Exception):
     pass
-
-
-class UserSessionNotFoundError(Exception):
-    pass

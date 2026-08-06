@@ -8,16 +8,12 @@ import pytest
 
 from app.db.redis_client import create_redis_client
 from app.db.repositories.session_repository import (
-    SessionBulkRevocation,
-    SessionBulkRevocationStatus,
     SessionDeletion,
     SessionDeletionResult,
     SessionRecord,
     SessionRepository,
     SessionRotation,
     SessionRotationResult,
-    SessionRevocation,
-    SessionRevocationResult,
 )
 
 pytestmark = [
@@ -295,139 +291,4 @@ def test_delete_if_matches_requires_current_hash_in_real_redis() -> None:
         assert client.zscore(index_key, session_id) is None
     finally:
         repository.delete(user_id, session_id)
-        client.close()
-
-
-def test_revoke_only_deletes_session_owned_by_user_in_real_redis() -> None:
-    client = create_redis_client()
-    repository = SessionRepository(client)
-
-    session_id = f"revocation-test-{uuid4().hex}"
-    owner_user_id = 9_999_999
-    other_user_id = 8_888_888
-    session_key = f"auth:session:{session_id}"
-    owner_index_key = f"auth:user:{owner_user_id}:sessions"
-    now = int(time())
-
-    try:
-        repository.create(
-            SessionRecord(
-                session_id=session_id,
-                user_id=owner_user_id,
-                refresh_token_hash="a" * 64,
-                created_at=now,
-                last_used_at=now,
-                expires_at=now + 60,
-                absolute_expires_at=now + 60,
-            ),
-            ttl_seconds=60,
-        )
-
-        wrong_owner_result = repository.revoke(
-            SessionRevocation(
-                session_id=session_id,
-                user_id=other_user_id,
-            )
-        )
-
-        assert wrong_owner_result is SessionRevocationResult.NOT_FOUND
-        assert client.exists(session_key) == 1
-        assert client.zscore(owner_index_key, session_id) == float(now)
-
-        owner_result = repository.revoke(
-            SessionRevocation(
-                session_id=session_id,
-                user_id=owner_user_id,
-            )
-        )
-
-        assert owner_result is SessionRevocationResult.SUCCESS
-        assert client.exists(session_key) == 0
-        assert client.zscore(owner_index_key, session_id) is None
-
-    finally:
-        repository.delete(owner_user_id, session_id)
-        client.close()
-
-
-def test_revoke_all_deletes_only_owned_sessions_in_real_redis() -> None:
-    client = create_redis_client()
-    repository = SessionRepository(client)
-
-    owner_user_id = 9_999_999
-    foreign_user_id = 8_888_888
-
-    current_session_id = f"bulk-current-{uuid4().hex}"
-    other_session_id = f"bulk-other-{uuid4().hex}"
-    foreign_session_id = f"bulk-foreign-{uuid4().hex}"
-
-    current_key = f"auth:session:{current_session_id}"
-    other_key = f"auth:session:{other_session_id}"
-    foreign_key = f"auth:session:{foreign_session_id}"
-
-    owner_index_key = f"auth:user:{owner_user_id}:sessions"
-    foreign_index_key = f"auth:user:{foreign_user_id}:sessions"
-
-    now = int(time())
-
-    try:
-        for session_id, user_id in [
-            (current_session_id, owner_user_id),
-            (other_session_id, owner_user_id),
-            (foreign_session_id, foreign_user_id),
-        ]:
-            repository.create(
-                SessionRecord(
-                    session_id=session_id,
-                    user_id=user_id,
-                    refresh_token_hash="a" * 64,
-                    created_at=now,
-                    last_used_at=now,
-                    expires_at=now + 60,
-                    absolute_expires_at=now + 60,
-                ),
-                ttl_seconds=60,
-            )
-
-        client.zadd(
-            owner_index_key,
-            {foreign_session_id: now},
-        )
-
-        rejected_result = repository.revoke_all(
-            SessionBulkRevocation(
-                current_session_id=current_session_id,
-                user_id=foreign_user_id,
-            )
-        )
-
-        assert (
-            rejected_result.status
-            is SessionBulkRevocationStatus.CURRENT_SESSION_NOT_FOUND
-        )
-        assert client.exists(current_key) == 1
-        assert client.exists(other_key) == 1
-        assert client.exists(foreign_key) == 1
-
-        result = repository.revoke_all(
-            SessionBulkRevocation(
-                current_session_id=current_session_id,
-                user_id=owner_user_id,
-            )
-        )
-        assert result.status is SessionBulkRevocationStatus.SUCCESS
-        assert result.revoked_count == 2
-        assert client.exists(current_key) == 0
-        assert client.exists(other_key) == 0
-        assert client.exists(foreign_key) == 1
-        assert client.exists(owner_index_key) == 0
-        assert client.zscore(foreign_index_key, foreign_session_id) == float(now)
-
-    finally:
-        repository.delete(owner_user_id, current_session_id)
-        repository.delete(owner_user_id, other_session_id)
-        repository.delete(foreign_user_id, foreign_session_id)
-
-        # 清理故意加入错误索引的 foreign_session_id。
-        client.zrem(owner_index_key, foreign_session_id)
         client.close()

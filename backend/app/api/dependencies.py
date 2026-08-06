@@ -16,27 +16,19 @@ from app.services.login_rate_limiter import LoginRateLimiter
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_access_token(
+def get_current_user(
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ],
-) -> str:
+    session: Annotated[Session, Depends(get_db)],
+) -> UserResponse:
     if credentials is None:
         raise InvalidAccessTokenError()
 
-    return credentials.credentials
-
-
-def get_session_repository() -> SessionRepository:
-    return SessionRepository(redis_client)
-
-
-def get_current_user(
-    token: Annotated[str, Depends(get_access_token)],
-    session: Annotated[Session, Depends(get_db)],
-) -> UserResponse:
-    return AuthService(session).get_current_user(token)
+    return AuthService(session).get_current_user(
+        credentials.credentials,
+    )
 
 
 def get_login_rate_limiter() -> LoginRateLimiter:
@@ -45,3 +37,7 @@ def get_login_rate_limiter() -> LoginRateLimiter:
         window_seconds=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
         max_attempts=settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     )
+
+
+def get_session_repository() -> SessionRepository:
+    return SessionRepository(redis_client)

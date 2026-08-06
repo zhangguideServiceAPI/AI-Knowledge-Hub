@@ -9,7 +9,6 @@ from app.core.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     LoginRateLimitExceededError,
-    UserSessionNotFoundError,
 )
 from app.core.logging import logger
 from app.schemas.error import ErrorResponse
@@ -114,19 +113,6 @@ async def invalid_refresh_token_handler(
     )
 
 
-async def user_session_not_found_handler(
-    _request: Request,
-    _error: UserSessionNotFoundError,
-) -> JSONResponse:
-    response = ErrorResponse(
-        detail="Session not found.",
-    )
-    return JSONResponse(
-        status_code=status.HTTP_404_NOT_FOUND,
-        content=response.model_dump(),
-    )
-
-
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         EmailAlreadyRegisteredError,
@@ -155,8 +141,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InactiveUserError,
         inactive_user_handler,
-    )
-    app.add_exception_handler(
-        UserSessionNotFoundError,
-        user_session_not_found_handler,
     )

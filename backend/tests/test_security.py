@@ -10,7 +10,6 @@ from app.core.exceptions import (
     InvalidRefreshTokenError,
 )
 from app.core.security import (
-    AccessTokenClaims,
     BCRYPT_PASSWORD_MAX_BYTES,
     SessionExpiration,
     calculate_initial_session_expiration,
@@ -72,9 +71,8 @@ def test_verify_password_rejects_password_over_bcrypt_limit() -> None:
 
 def test_create_access_token_contains_expected_claims() -> None:
     user_id = 123
-    session_id = "session-abc"
 
-    token = create_access_token(user_id, session_id)
+    token = create_access_token(user_id)
     payload = jwt.decode(
         token,
         settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
@@ -83,7 +81,6 @@ def test_create_access_token_contains_expected_claims() -> None:
 
     assert payload["sub"] == str(user_id)
     assert payload["type"] == "access"
-    assert payload["sid"] == session_id
     assert payload["exp"] - payload["iat"] == (
         settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
@@ -96,7 +93,6 @@ def test_create_access_token_does_not_outlive_session() -> None:
 
     token = create_access_token(
         user_id=123,
-        session_id="session-abc",
         session_expires_at=session_expires_at,
     )
     payload = jwt.decode(
@@ -118,7 +114,6 @@ def test_create_access_token_does_not_extend_default_lifetime() -> None:
 
     token = create_access_token(
         user_id=123,
-        session_id="session-abc",
         session_expires_at=session_expires_at,
     )
     payload = jwt.decode(
@@ -134,7 +129,7 @@ def test_create_access_token_does_not_extend_default_lifetime() -> None:
 
 
 def test_access_token_rejects_wrong_secret() -> None:
-    token = create_access_token(123, "session-abc")
+    token = create_access_token(123)
 
     with pytest.raises(JWTError):
         jwt.decode(
@@ -144,60 +139,12 @@ def test_access_token_rejects_wrong_secret() -> None:
         )
 
 
-def test_decode_access_token_returns_claims() -> None:
-    token = create_access_token(123, "session-abc")
+def test_decode_access_token_returns_user_id() -> None:
+    token = create_access_token(123)
 
-    claims = decode_access_token(token)
+    user_id = decode_access_token(token)
 
-    assert isinstance(claims, AccessTokenClaims)
-    assert claims.user_id == 123
-    assert claims.session_id == "session-abc"
-    assert isinstance(claims.issued_at, int)
-    assert isinstance(claims.expires_at, int)
-
-
-def test_decode_access_token_accepts_legacy_token_without_session_id() -> None:
-    now = datetime.now(timezone.utc)
-    token = jwt.encode(
-        {
-            "sub": "123",
-            "type": "access",
-            "iat": now,
-            "exp": now + timedelta(minutes=30),
-        },
-        settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
-        algorithm=settings.JWT_ALGORITHM,
-        headers={"kid": settings.JWT_ACTIVE_KEY_ID},
-    )
-
-    claims = decode_access_token(token)
-
-    assert claims.user_id == 123
-    assert claims.session_id is None
-
-
-@pytest.mark.parametrize("session_id", ["", 42])
-def test_decode_access_token_rejects_invalid_session_id(
-    session_id: object,
-) -> None:
-    now = datetime.now(timezone.utc)
-    token = jwt.encode(
-        {
-            "sub": "123",
-            "type": "access",
-            "sid": session_id,
-            "iat": now,
-            "exp": now + timedelta(minutes=30),
-        },
-        settings.JWT_SIGNING_KEYS[settings.JWT_ACTIVE_KEY_ID].get_secret_value(),
-        algorithm=settings.JWT_ALGORITHM,
-        headers={"kid": settings.JWT_ACTIVE_KEY_ID},
-    )
-
-    with pytest.raises(InvalidAccessTokenError) as error:
-        decode_access_token(token)
-
-    assert error.value.__cause__ is None
+    assert user_id == 123
 
 
 def test_decode_access_token_rejects_wrong_signature() -> None:
@@ -320,7 +267,7 @@ def test_create_access_token_uses_active_signing_key(
         },
     )
 
-    token = create_access_token(user_id=123, session_id="session-abc")
+    token = create_access_token(user_id=123)
 
     header = jwt.get_unverified_header(token)
     payload = jwt.decode(
@@ -355,14 +302,11 @@ def test_decode_access_token_accepts_previous_signing_key(
         },
     )
     monkeypatch.setattr(settings, "JWT_ACTIVE_KEY_ID", "v1")
-    old_token = create_access_token(user_id=123, session_id="session-abc")
+    old_token = create_access_token(user_id=123)
 
     # 模拟正常轮换：新 Token 改用 v2，但 v1 仍留在 Key Ring。
     monkeypatch.setattr(settings, "JWT_ACTIVE_KEY_ID", "v2")
-    claims = decode_access_token(old_token)
-
-    assert claims.user_id == 123
-    assert claims.session_id == "session-abc"
+    assert decode_access_token(old_token) == 123
 
 
 def test_decode_access_token_rejects_missing_key_id() -> None:
@@ -564,7 +508,7 @@ def test_decode_refresh_token_returns_claims() -> None:
 
 
 def test_decode_refresh_token_rejects_access_token() -> None:
-    token = create_access_token(42, "session-abc")
+    token = create_access_token(42)
 
     with pytest.raises(InvalidRefreshTokenError) as error:
         decode_refresh_token(token)

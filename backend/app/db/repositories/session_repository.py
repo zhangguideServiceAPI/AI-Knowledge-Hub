@@ -13,8 +13,6 @@ class SessionRecord:
     last_used_at: int
     expires_at: int
     absolute_expires_at: int
-    ip_address: str | None = None
-    user_agent: str | None = None
 
 
 # expected_refresh_token_hash：客户端提交的旧 Token Hash，必须和 Redis 当前值相同。
@@ -51,34 +49,6 @@ class SessionDeletionResult(Enum):
     SUCCESS = "success"
     SESSION_NOT_FOUND = "session_not_found"
     SESSION_MISMATCH = "session_mismatch"
-
-
-@dataclass(frozen=True)
-class SessionRevocation:
-    session_id: str
-    user_id: int
-
-
-class SessionRevocationResult(Enum):
-    SUCCESS = "success"
-    NOT_FOUND = "not_found"
-
-
-@dataclass(frozen=True)
-class SessionBulkRevocation:
-    current_session_id: str
-    user_id: int
-
-
-class SessionBulkRevocationStatus(Enum):
-    SUCCESS = "success"
-    CURRENT_SESSION_NOT_FOUND = "current_session_not_found"
-
-
-@dataclass(frozen=True)
-class SessionBulkRevocationResult:
-    status: SessionBulkRevocationStatus
-    revoked_count: int
 
 
 # Lua 脚本在 Redis 内一次完成旧 Hash 比较和新状态写入。
@@ -137,53 +107,6 @@ return 1
 """
 
 
-# Session 管理撤销先原子校验目标所有者，避免越权删除其他用户的 Session。
-_REVOKE_SESSION_SCRIPT = """
-local current_user_id = redis.call("HGET", KEYS[1], "user_id")
-
-if not current_user_id or current_user_id ~= ARGV[1] then
-    return 0
-end
-
-redis.call("DEL", KEYS[1])
-redis.call("ZREM", KEYS[2], ARGV[2])
-
-return 1
-"""
-
-# 全部登出在一次脚本中验证当前 Session，并删除用户现有的全部 Session。
-# KEYS[1] = auth:session:{current_session_id}
-# KEYS[2] = auth:user:{user_id}:sessions
-# current_key       -> KEYS[1]
-# index_key         -> KEYS[2]
-# str(user_id)      -> ARGV[1]
-# "auth:session:"   -> ARGV[2]
-_REVOKE_ALL_SESSIONS_SCRIPT = """
-local current_user_id = redis.call("HGET", KEYS[1], "user_id")
-
-if not current_user_id or current_user_id ~= ARGV[1] then
-    return -1
-end
-
-local session_ids = redis.call("ZRANGE", KEYS[2], 0, -1)
-local revoked_count = 0
-
-for _, session_id in ipairs(session_ids) do
-    local session_key = ARGV[2] .. session_id
-    local session_user_id = redis.call("HGET", session_key, "user_id")
-
-    if session_user_id == ARGV[1] then
-        revoked_count = revoked_count + redis.call("DEL", session_key)
-    end
-end
-
-revoked_count = revoked_count + redis.call("DEL", KEYS[1])
-redis.call("DEL", KEYS[2])
-
-return revoked_count
-"""
-
-
 def _session_record_from_hash(
     session_id: str,
     data: dict[str, str],
@@ -196,8 +119,6 @@ def _session_record_from_hash(
         last_used_at=int(data["last_used_at"]),
         expires_at=int(data["expires_at"]),
         absolute_expires_at=int(data["absolute_expires_at"]),
-        ip_address=data.get("ip_address"),
-        user_agent=data.get("user_agent"),
     )
 
 
@@ -214,25 +135,16 @@ class SessionRepository:
         index_key = f"auth:user:{session.user_id}:sessions"
 
         pipeline = self._client.pipeline(transaction=True)
-
-        mapping = {
-            "user_id": str(session.user_id),
-            "refresh_token_hash": session.refresh_token_hash,
-            "created_at": str(session.created_at),
-            "last_used_at": str(session.last_used_at),
-            "expires_at": str(session.expires_at),
-            "absolute_expires_at": str(session.absolute_expires_at),
-        }
-
-        if session.ip_address is not None:
-            mapping["ip_address"] = session.ip_address
-
-        if session.user_agent is not None:
-            mapping["user_agent"] = session.user_agent
-
         pipeline.hset(
             key,
-            mapping=mapping,
+            mapping={
+                "user_id": str(session.user_id),
+                "refresh_token_hash": session.refresh_token_hash,
+                "created_at": str(session.created_at),
+                "last_used_at": str(session.last_used_at),
+                "expires_at": str(session.expires_at),
+                "absolute_expires_at": str(session.absolute_expires_at),
+            },
         )
         pipeline.expire(key, ttl_seconds)
         pipeline.zadd(
@@ -312,60 +224,6 @@ class SessionRepository:
             return SessionDeletionResult.SESSION_MISMATCH
 
         raise ValueError(f"Unexpected session deletion result: {result}")
-
-    def revoke(
-        self,
-        revocation: SessionRevocation,
-    ) -> SessionRevocationResult:
-        key = f"auth:session:{revocation.session_id}"
-        index_key = f"auth:user:{revocation.user_id}:sessions"
-
-        result = self._client.eval(
-            _REVOKE_SESSION_SCRIPT,
-            2,
-            key,
-            index_key,
-            str(revocation.user_id),
-            revocation.session_id,
-        )
-
-        if result == 1:
-            return SessionRevocationResult.SUCCESS
-
-        if result == 0:
-            return SessionRevocationResult.NOT_FOUND
-
-        raise ValueError(f"Unexpected session revocation result: {result}")
-
-    def revoke_all(
-        self,
-        revocation: SessionBulkRevocation,
-    ) -> SessionBulkRevocationResult:
-        key = f"auth:session:{revocation.current_session_id}"
-        index_key = f"auth:user:{revocation.user_id}:sessions"
-
-        result = self._client.eval(
-            _REVOKE_ALL_SESSIONS_SCRIPT,
-            2,
-            key,
-            index_key,
-            str(revocation.user_id),
-            "auth:session:",
-        )
-
-        if result == -1:
-            return SessionBulkRevocationResult(
-                status=SessionBulkRevocationStatus.CURRENT_SESSION_NOT_FOUND,
-                revoked_count=0,
-            )
-
-        if result >= 1:
-            return SessionBulkRevocationResult(
-                status=SessionBulkRevocationStatus.SUCCESS,
-                revoked_count=result,
-            )
-
-        raise ValueError(f"Unexpected bulk session revocation result: {result}")
 
     def delete(self, user_id: int, session_id: str) -> None:
         key = f"auth:session:{session_id}"
