@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：4 / 100
+正式完整答案：2 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -68,7 +68,7 @@ Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
 Sprint 3 学习计划：已完成
-Sprint 3 面试答案：4 / 8，Story 3.0、3.1 和 3.2 已同步
+Sprint 3 面试答案：2 / 8，Story 3.0 和 Story 3.1 各完成 1 道
 ```
 
 不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
@@ -196,86 +196,6 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 `理解`：已完成（2026-08-02）。
 `能讲 / 能画 / 能写`：待后续 Story 在真实 API 和测试中验证。
-
-### Q3. 为什么数据库只保存 File Metadata，而不保存大文件内容？
-
-**30 秒简答**
-
-数据库适合保存可查询、可授权、可排序的 Metadata，例如文件所有者、状态、大小和内部对象位置；对象存储适合保存 PDF、图片等大二进制内容。分离后，文件不会绑定某台 FastAPI 机器，MySQL 也不需要承担大对象的容量、备份和 I/O 压力。
-
-**2 分钟完整回答**
-
-File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、按时间分页、生命周期状态和未来 RAG 关联，因此由 MySQL 保存 UUID `file_id`、`owner_id`、文件名、类型、大小、SHA-256、状态和时间字段。Storage Object 是 Provider 中的真实 Bytes，通过 `storage_provider`、`bucket` 和 `object_key` 定位。
-
-如果把大文件直接存 MySQL BLOB，数据库的事务、备份、容量和 I/O 会被文件内容放大；如果只存本机目录，又无法支持多实例、容器重建和可替换的对象存储。将 Metadata 和 Bytes 分离后，客户端只依赖稳定 `file_id`，后端可以从 LocalStorage 演进到 MinIO，不改变 API。
-
-**项目中的设计或代码证据**
-
-- File Resource 字段、响应边界和数据库约束见 `docs/architecture/file-resource-design.md`。
-- Storage Evolution 和 ADR-0021 解释了 LocalStorage、MinIO 与 MySQL 的职责分离。
-- 当前是已接受设计，Metadata Model 和 Migration 在 Story 3.4 实现。
-
-**为什么没有采用其他方案**
-
-- 不使用 MySQL BLOB 作为默认文件存储。
-- 不将本机 `uploads/` 当作唯一事实来源。
-- 当前不做跨用户物理去重，避免引用计数、删除和权限复杂度。
-
-**常见追问**
-
-- 相同 SHA-256 文件为什么当前仍保存两份？
-- `object_key` 为什么不返回客户端？
-- File Resource 和未来 Document、Chunk 的关系是什么？
-
-**容易说错的地方**
-
-- UUID `file_id` 是资源身份，不是权限；仍必须校验 `owner_id`。
-- `original_filename` 可以重名，也不能直接作为 Object Key。
-
-**掌握状态**
-
-`理解`：已完成（2026-08-03）。
-`能讲 / 能画 / 能写`：待 Model、Repository 和 API 实现后验证。
-
-### Q4. MySQL 与对象存储不能共享事务时，如何处理孤儿对象和失败补偿？
-
-**30 秒简答**
-
-不能把 MySQL 和对象存储当作一个可共同回滚的事务。项目用资源状态机表达中间状态：上传创建 `PENDING_UPLOAD`，对象和 Metadata 都成功后才变为 `READY`。如果对象成功但数据库更新失败，Service 尝试删除对象补偿；补偿仍失败时记录 `CLEANUP_REQUIRED`，由未来清理流程处理。
-
-**2 分钟完整回答**
-
-上传先完成大小、类型和 SHA-256 的流内校验，再创建 `PENDING_UPLOAD` Metadata 并写入对象。对象写入成功后，Service 更新 Metadata 为 `READY`，此时才返回 201，普通列表和下载也只允许 `READY`。
-
-对象写入失败时，Resource 标记为 `UPLOAD_FAILED`。更困难的情况是对象写入成功、MySQL 更新失败：Service 不能回滚对象存储，只能显式调用删除作为补偿；删除失败或结果不确定时，保持资源不可见并记录 `CLEANUP_REQUIRED`、安全日志和未来 Cleanup Worker 的处理边界。删除流程同理：先 `DELETING`，删除对象成功后才逻辑删除 Metadata；失败时不物理删除 Metadata，以保留清理依据。
-
-**项目中的设计或代码证据**
-
-- 上传、下载、删除时序和测试矩阵见 `docs/architecture/storage-flow.md`。
-- ADR-0023 固化了状态机、补偿、可见性与不实现自动 Worker 的边界。
-- 当前是设计阶段，Provider、Repository 和补偿测试将在后续 Story 实现。
-
-**为什么没有采用其他方案**
-
-- 不假设调用顺序本身就能保证一致性。
-- 不先物理删除 Metadata。
-- 不在当前 Sprint 引入分布式事务、两阶段提交或后台 Worker。
-
-**常见追问**
-
-- 为什么 `CLEANUP_REQUIRED` 不直接对用户显示？
-- 用户重新上传时为什么不用旧 Object Key？
-- 如何让 DELETE 具备幂等性？
-
-**容易说错的地方**
-
-- 补偿不是跨系统回滚，只是一个可能再次失败的独立操作。
-- `READY` 不是“已创建数据库记录”，而是对象与 Metadata 都已可用。
-
-**掌握状态**
-
-`理解`：已完成（2026-08-03）。
-`能讲 / 能画 / 能写`：待真实失败路径测试后验证。
 
 ## Sprint 4: AI Gateway
 
