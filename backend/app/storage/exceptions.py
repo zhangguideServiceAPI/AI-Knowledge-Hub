@@ -48,7 +48,3 @@ class FileDeleteFailedError(Exception):
 
 class FileContentUnavailableError(Exception):
     """Metadata 存在，但对应的文件内容不可用。"""
-
-
-class FileCleanupFailedError(Exception):
-    """文件清理的数据库状态提交或补偿流程失败。"""

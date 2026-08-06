@@ -7,11 +7,10 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.file_resource import FileFailureReason, FileResource, FileStatus
+from app.models.file_resource import FileResource, FileStatus
 from app.models.user import User
 from app.services.file_service import FileService
 from app.storage.exceptions import (
-    FileCleanupFailedError,
     FileContentUnavailableError,
     FileDeleteFailedError,
     FileResourceNotFoundError,
@@ -140,46 +139,7 @@ def test_upload_marks_failed_when_provider_write_fails(
     resource = session.query(FileResource).one()
 
     assert resource.status == FileStatus.UPLOAD_FAILED.value
-    assert resource.failure_reason == FileFailureReason.PROVIDER_WRITE_FAILED.value
-    storage_provider.delete.assert_called_once_with(resource.object_key)
-
-
-def test_upload_marks_cleanup_required_when_write_failure_cleanup_fails(
-    session: Session,
-) -> None:
-    user = User(
-        email="write-cleanup-failure@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-
-    storage_provider = Mock(spec=StorageProvider)
-    storage_provider.put.side_effect = StorageOperationError()
-    storage_provider.delete.side_effect = StorageOperationError()
-
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="minio",
-        bucket="knowledge-files",
-        max_upload_size=1024 * 1024,
-        chunk_size=4,
-    )
-
-    with pytest.raises(StorageUnavailableError):
-        service.upload(
-            owner_id=user.id,
-            original_filename="report.pdf",
-            content_type="application/pdf",
-            source=BytesIO(b"%PDF-1.7\nfile content"),
-        )
-
-    resource = session.query(FileResource).one()
-
-    assert resource.status == FileStatus.CLEANUP_REQUIRED.value
-    assert resource.failure_reason == FileFailureReason.CLEANUP_FAILED.value
-    storage_provider.delete.assert_called_once_with(resource.object_key)
+    assert resource.failure_reason == "provider_write_failed"
 
 
 def test_upload_rejection_logs_fixed_reason(
@@ -263,7 +223,7 @@ def test_upload_deletes_object_when_ready_commit_fails(
     resource = session.query(FileResource).one()
 
     assert resource.status == FileStatus.UPLOAD_FAILED.value
-    assert resource.failure_reason == FileFailureReason.METADATA_COMMIT_FAILED.value
+    assert resource.failure_reason == "metadata_commit_failed"
     storage_provider.delete.assert_called_once_with(resource.object_key)
 
 
@@ -315,7 +275,7 @@ def test_upload_marks_cleanup_required_when_compensation_fails(
     resource = session.query(FileResource).one()
 
     assert resource.status == FileStatus.CLEANUP_REQUIRED.value
-    assert resource.failure_reason == FileFailureReason.CLEANUP_FAILED.value
+    assert resource.failure_reason == "cleanup_failed"
     storage_provider.delete.assert_called_once_with(resource.object_key)
 
 
@@ -585,7 +545,7 @@ def test_delete_file_marks_cleanup_required_when_provider_fails(
     persisted = session.get(FileResource, resource.id)
     assert persisted is not None
     assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-    assert persisted.failure_reason == FileFailureReason.PROVIDER_DELETE_FAILED.value
+    assert persisted.failure_reason == "provider_delete_failed"
 
 
 def test_delete_file_does_not_call_provider_when_deleting_commit_fails(
@@ -675,10 +635,7 @@ def test_delete_file_marks_cleanup_required_when_final_commit_fails(
     persisted = session.get(FileResource, resource.id)
     assert persisted is not None
     assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-    assert (
-        persisted.failure_reason
-        == FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value
-    )
+    assert persisted.failure_reason == "metadata_delete_commit_failed"
     storage_provider.delete.assert_called_once_with(resource.object_key)
 
 
@@ -758,7 +715,7 @@ def test_download_file_marks_cleanup_required_when_object_is_missing(
     persisted = session.get(FileResource, resource.id)
     assert persisted is not None
     assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-    assert persisted.failure_reason == FileFailureReason.STORAGE_OBJECT_MISSING.value
+    assert persisted.failure_reason == "storage_object_missing"
 
 
 def test_download_file_maps_provider_failure(
@@ -878,346 +835,3 @@ def test_delete_file_returns_not_found_when_repeated(
         service.delete_file(owner_id=user.id, file_id=resource.id)
 
     storage_provider.delete.assert_called_once_with(resource.object_key)
-
-
-def test_cleanup_file_completes_upload_cleanup_and_is_idempotent(
-    session: Session,
-) -> None:
-    user = User(
-        email="cleanup-upload@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-upload",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = FileFailureReason.CLEANUP_FAILED.value
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    assert service.cleanup_file(file_id=resource.id) is True
-    assert service.cleanup_file(file_id=resource.id) is False
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.UPLOAD_FAILED.value
-    assert persisted.failure_reason == FileFailureReason.CLEANUP_FAILED.value
-    assert persisted.deleted_at is None
-    storage_provider.delete.assert_called_once_with(resource.object_key)
-
-
-@pytest.mark.parametrize(
-    "failure_reason",
-    [
-        FileFailureReason.PROVIDER_DELETE_FAILED.value,
-        FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value,
-        FileFailureReason.STORAGE_OBJECT_MISSING.value,
-    ],
-)
-def test_cleanup_file_completes_delete_cleanup(
-    session: Session,
-    failure_reason: str,
-) -> None:
-    user = User(
-        email=f"cleanup-delete-{failure_reason}@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-delete-{failure_reason}",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = failure_reason
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    assert service.cleanup_file(file_id=resource.id) is True
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.DELETED.value
-    assert persisted.failure_reason == failure_reason
-    assert persisted.deleted_at is not None
-    storage_provider.delete.assert_called_once_with(resource.object_key)
-
-
-def test_cleanup_file_skips_resource_that_does_not_require_cleanup(
-    session: Session,
-) -> None:
-    user = User(
-        email="cleanup-skip@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-skip",
-    )
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    assert service.cleanup_file(file_id=resource.id) is False
-    storage_provider.delete.assert_not_called()
-
-
-def test_cleanup_file_rejects_unknown_reason_before_deleting_object(
-    session: Session,
-) -> None:
-    user = User(
-        email="cleanup-unknown@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-unknown",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = "unknown_reason"
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    with pytest.raises(FileCleanupFailedError):
-        service.cleanup_file(file_id=resource.id)
-
-    assert resource.status == FileStatus.CLEANUP_REQUIRED.value
-    storage_provider.delete.assert_not_called()
-
-
-def test_cleanup_file_keeps_retryable_state_when_provider_delete_fails(
-    session: Session,
-) -> None:
-    user = User(
-        email="cleanup-provider-failure@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-provider-failure",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = FileFailureReason.PROVIDER_DELETE_FAILED.value
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    storage_provider.delete.side_effect = StorageOperationError()
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    with pytest.raises(StorageUnavailableError):
-        service.cleanup_file(file_id=resource.id)
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-    assert persisted.failure_reason == FileFailureReason.PROVIDER_DELETE_FAILED.value
-
-
-def test_cleanup_file_can_retry_after_metadata_commit_fails(
-    session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    user = User(
-        email="cleanup-commit-failure@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-commit-failure",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="local",
-        bucket="local",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-    original_commit = session.commit
-    monkeypatch.setattr(
-        session,
-        "commit",
-        Mock(side_effect=SQLAlchemyError("cleanup commit failed")),
-    )
-
-    with pytest.raises(FileCleanupFailedError):
-        service.cleanup_file(file_id=resource.id)
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-
-    monkeypatch.setattr(session, "commit", original_commit)
-
-    assert service.cleanup_file(file_id=resource.id) is True
-    assert storage_provider.delete.call_count == 2
-
-
-@pytest.mark.parametrize(
-    ("storage_provider_name", "bucket"),
-    [
-        ("minio", "local"),
-        ("local", "other-bucket"),
-    ],
-)
-@pytest.mark.parametrize(
-    "operation",
-    [
-        "download",
-        "delete",
-    ],
-)
-def test_file_object_operation_rejects_storage_mismatch(
-    session: Session,
-    storage_provider_name: str,
-    bucket: str,
-    operation: str,
-) -> None:
-    user = User(
-        email=(
-            f"storage-mismatch-{operation}-{storage_provider_name}-{bucket}@example.com"
-        ),
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/storage-mismatch-{operation}",
-    )
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name=storage_provider_name,
-        bucket=bucket,
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    with pytest.raises(StorageUnavailableError):
-        if operation == "download":
-            service.download_file(
-                owner_id=user.id,
-                file_id=resource.id,
-            )
-        else:
-            service.delete_file(
-                owner_id=user.id,
-                file_id=resource.id,
-            )
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.READY.value
-    storage_provider.open.assert_not_called()
-    storage_provider.delete.assert_not_called()
-
-
-def test_cleanup_file_rejects_storage_mismatch(
-    session: Session,
-) -> None:
-    user = User(
-        email="cleanup-storage-mismatch@example.com",
-        password_hash="hashed-password",
-    )
-    session.add(user)
-    session.flush()
-    resource = _create_ready_file(
-        session,
-        owner_id=user.id,
-        object_key=f"users/{user.id}/cleanup-storage-mismatch",
-    )
-    resource.status = FileStatus.CLEANUP_REQUIRED.value
-    resource.failure_reason = FileFailureReason.PROVIDER_DELETE_FAILED.value
-    session.commit()
-
-    storage_provider = Mock(spec=StorageProvider)
-    service = FileService(
-        session,
-        storage_provider,
-        storage_provider_name="minio",
-        bucket="knowledge-files",
-        max_upload_size=1024,
-        chunk_size=4,
-    )
-
-    with pytest.raises(StorageUnavailableError):
-        service.cleanup_file(file_id=resource.id)
-
-    session.expire_all()
-    persisted = session.get(FileResource, resource.id)
-    assert persisted is not None
-    assert persisted.status == FileStatus.CLEANUP_REQUIRED.value
-    assert persisted.failure_reason == FileFailureReason.PROVIDER_DELETE_FAILED.value
-    storage_provider.delete.assert_not_called()

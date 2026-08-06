@@ -2,10 +2,8 @@
 
 ## 1. 范围
 
-本文记录 Story 3.6 至 Story 3.8 已实现的文件列表、详情、下载、删除、Cleanup 和 Owner-only 权限边界。
+本文记录 Story 3.6 至 Story 3.7 已实现的文件列表、详情、下载、删除和 Owner-only 权限边界。
 当前支持通过配置切换 LocalStorage 与 MinIO；两者都使用权限检查后的后端代理下载。
-
-Factory 在每个应用进程内只创建一个活动 Provider。配置切换适用于空环境或已经完成对象与 Metadata 迁移的部署，不代表当前支持 Local 与 MinIO 混合资源路由。下载、删除和 Cleanup 在对象操作前验证 Metadata 中的 Provider 与 Bucket；不匹配时返回安全错误且不访问当前 Provider。
 
 ## 2. 资源权限
 
@@ -55,8 +53,6 @@ Provider 删除失败时保存固定 `failure_reason=provider_delete_failed` 并
 
 重复删除不会再次调用 Provider：资源不再是 `READY` 后，Owner 查询返回空并统一映射为 404。无论重复请求的 HTTP 状态如何，资源状态不会恢复，因此删除操作保持状态幂等。
 
-内部 Cleanup 不开放 HTTP API，只按 `file_id + CLEANUP_REQUIRED` 查询。未知失败原因在物理删除前拒绝；Provider 失败保留原状态，Metadata 提交失败回滚后可以再次幂等删除。日志只记录 `file_id`、固定失败原因和目标状态，不记录内部存储位置。
-
 ## 5. 当前 API
 
 | API | 成功 | 主要失败 |
@@ -72,7 +68,6 @@ Provider 删除失败时保存固定 `failure_reason=provider_delete_failed` 并
 - API Test 验证分页约束、404 隐藏、流式响应 Header、分块读取和流关闭。
 - LocalStorage 纵向测试完成上传、详情、列表、下载、删除和删除后再次访问 404。
 - 真实 MinIO 纵向测试验证 Provider Factory、MySQL 存储位置、SHA-256、代理下载、删除和对象清理。
-- 真实 MinIO Cleanup 测试验证遗留对象删除、Metadata 终态和重复调用幂等性。
 - MinIO 故障测试验证错误凭据、不存在 Bucket、Endpoint 不可用和条件化 Readiness。
 - Router 不使用本地路径或 Provider SDK；Repository 不访问文件 Bytes。
 
@@ -80,5 +75,5 @@ Provider 删除失败时保存固定 `failure_reason=provider_delete_failed` 并
 
 - MinIO Presigned URL、CDN 和公开下载链接；待规模与带宽数据证明需要后再设计。
 - 文件共享、组织空间、RBAC 和跨用户授权。
-- 后台 Cleanup Worker、自动对账和人工运维接口；同步 Cleanup Service 边界已经实现。
+- 后台 Cleanup Worker、自动对账和人工运维接口。
 - Range Request、断点下载和视频流媒体优化。

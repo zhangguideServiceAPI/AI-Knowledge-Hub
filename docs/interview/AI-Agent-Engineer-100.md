@@ -173,8 +173,7 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 **项目中的设计或代码证据**
 
 - Story 3.1 的 Multipart、`UploadFile`、Chunk、临时磁盘、类型安全和测试约束见 `docs/architecture/storage-architecture.md`。
-- `POST /files` 已使用 `UploadFile` 接收 Multipart 文件，并由 FileService 分块校验实际大小、类型和 SHA-256。
-- API 与 Service Test 已验证正常上传、413、415、空文件、异常文件名和 Provider 故障。
+- 当前已加入上传大小与 Chunk Size 配置；正式 Upload API、流内计数和业务异常将在 Story 3.5 实现。
 
 **为什么没有采用其他方案**
 
@@ -196,8 +195,8 @@ Block Storage 解决的是机器磁盘问题，常用于 MySQL 等数据库的�
 
 **掌握状态**
 
-`理解 / 能写`：已通过真实 Upload API、流内校验和测试验证（2026-08-06）。
-`能讲 / 能画`：待 Sprint 3 收尾口述与白板演练。
+`理解`：已完成（2026-08-02）。
+`能讲 / 能画 / 能写`：待后续 Story 在真实 API 和测试中验证。
 
 ### Q3. 为什么数据库只保存 File Metadata，而不保存大文件内容？
 
@@ -239,27 +238,25 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 **掌握状态**
 
 `理解 / 能写`：已通过 Model、Migration、Repository、Schema 和测试验证（2026-08-04）。
-`能讲 / 能画`：已通过 Local 与真实 MinIO 的完整上传、下载和删除链路验证（2026-08-06）。
+`能讲 / 能画`：待完整上传、下载和删除链路验证。
 
 ### Q4. MySQL 与对象存储不能共享事务时，如何处理孤儿对象和失败补偿？
 
 **30 秒简答**
 
-不能把 MySQL 和对象存储当作一个可共同回滚的事务。项目用资源状态机表达中间状态：上传创建 `PENDING_UPLOAD`，对象和 Metadata 都成功后才变为 `READY`。如果对象成功但数据库更新失败，Service 尝试删除对象补偿；补偿仍失败时记录 `CLEANUP_REQUIRED`，由可重复调用的 Cleanup Service 收尾。
+不能把 MySQL 和对象存储当作一个可共同回滚的事务。项目用资源状态机表达中间状态：上传创建 `PENDING_UPLOAD`，对象和 Metadata 都成功后才变为 `READY`。如果对象成功但数据库更新失败，Service 尝试删除对象补偿；补偿仍失败时记录 `CLEANUP_REQUIRED`，由未来清理流程处理。
 
 **2 分钟完整回答**
 
 上传先完成大小、类型和 SHA-256 的流内校验，再创建 `PENDING_UPLOAD` Metadata 并写入对象。对象写入成功后，Service 更新 Metadata 为 `READY`，此时才返回 201，普通列表和下载也只允许 `READY`。
 
-对象写入报错时不能假设对象一定不存在，因为可能是服务端已写入但响应丢失；Service 会先执行幂等删除。更困难的情况是对象写入成功、MySQL 更新失败：Service 不能回滚对象存储，只能显式调用删除作为补偿；删除失败或结果不确定时，保持资源不可见并记录 `CLEANUP_REQUIRED`。同步 Cleanup Service 只查询该状态，根据固定失败原因决定终态，Provider 或 Metadata 再次失败时继续保留可重试状态。删除流程同理：先 `DELETING`，删除对象成功后才逻辑删除 Metadata。
+对象写入失败时，Resource 标记为 `UPLOAD_FAILED`。更困难的情况是对象写入成功、MySQL 更新失败：Service 不能回滚对象存储，只能显式调用删除作为补偿；删除失败或结果不确定时，保持资源不可见并记录 `CLEANUP_REQUIRED`、安全日志和未来 Cleanup Worker 的处理边界。删除流程同理：先 `DELETING`，删除对象成功后才逻辑删除 Metadata；失败时不物理删除 Metadata，以保留清理依据。
 
 **项目中的设计或代码证据**
 
 - 上传、下载、删除时序和测试矩阵见 `docs/architecture/storage-flow.md`。
 - ADR-0023 固化了状态机、补偿、可见性与不实现自动 Worker 的边界。
-- `FileService` 已实现上传、删除补偿与 `cleanup_file()`；Repository 只允许内部清理读取 `CLEANUP_REQUIRED`。
-- Unit Test 验证未知原因先于物理删除被拒绝、Provider 失败保留状态、Metadata 失败后可重试。
-- 真实 MinIO Integration Test 验证遗留对象删除、Metadata 终态和重复调用幂等性。
+- 当前是设计阶段，Provider、Repository 和补偿测试将在后续 Story 实现。
 
 **为什么没有采用其他方案**
 
@@ -280,9 +277,8 @@ File Resource 是用户可见的业务资源，必须支持 Owner-only 权限、
 
 **掌握状态**
 
-`理解 / 能写`：已完成（2026-08-06），并通过 Repository、Service 和真实 MinIO Cleanup 测试验证。
-`能讲`：已完成一次带纠正的口述演练，能够说明不确定写入、`CLEANUP_REQUIRED` 和单资源幂等清理。
-`能画`：已通过 `storage-flow.md` 上传补偿与 Cleanup 流程图验证。
+`理解`：已完成（2026-08-03）。
+`能讲 / 能画 / 能写`：待 Repository、Service 和真实跨系统失败路径测试后验证。
 
 ### Q5. 为什么需要 `StorageProvider` 抽象，怎样避免为未来 Provider 过度设计？
 
@@ -425,53 +421,6 @@ StreamingResponse 让后端边读边返回，适合 LocalStorage、细粒度审�
 
 `理解 / 能写`：已完成（2026-08-04）。
 `能讲 / 能画`：已结合真实 MinIO 代理流完成对比验证（2026-08-05）。
-
-### Q8. MinIO 接入为什么要区分 Root 与应用账号，怎样设计 Client 和 Readiness？
-
-**30 秒简答**
-
-MinIO Root 账号只用于初始化 Bucket、应用账号和 Policy，FastAPI 运行时只持有限定 Bucket 权限的应用凭据。boto3 Client 和连接池应在进程内复用，不能每个请求重新创建。MinIO 模式的 Readiness 使用短超时 `head_bucket()` 验证业务账号、网络和 Bucket；失败时应用仍存活，但停止接收需要完整依赖的新流量。
-
-**2 分钟完整回答**
-
-MinIO 提供 S3-compatible API，因此项目使用 boto3，不把业务绑定到 MinIO 专用 SDK。Compose 中的 `minio-init` 是一次性管理容器：等待 MinIO Healthy 后，使用 Root 凭据创建 Bucket、应用账号和 Bucket-scoped Policy，完成后正常退出。FastAPI 只注入应用 Access Key 与 Secret Key，不能获得创建用户、修改全局 Policy 或访问其他 Bucket 的管理权限。
-
-boto3 Client 内部维护 HTTP 连接池，Factory 使用进程级缓存复用业务 Client 和 Provider。每个请求重新创建 Client 会增加连接、TLS 和线程资源开销。Readiness 使用独立缓存 Client，因为探测需要更短的连接和读取超时，并关闭 SDK 自动重试，避免依赖故障时健康检查阻塞十几秒。
-
-Readiness 还必须按配置有条件执行：Local 模式不访问 MinIO；MinIO 模式调用 `head_bucket()`，同时验证 Endpoint 可达、应用凭据有效且目标 Bucket 存在。失败时 `/health/live` 仍表示进程存活，`/health/ready` 返回 Storage Unavailable；依赖恢复后无需重启即可重新 Ready。
-
-**项目中的设计或代码证据**
-
-- `infra/compose.dev.yaml` 使用固定版本 MinIO，并通过一次性 `minio-init` 完成初始化。
-- `infra/minio/app-policy.template.json` 将权限限制到配置 Bucket 的对象读写和必要 Multipart 操作。
-- `storage/factory.py` 分离并缓存业务 Client 与短超时 Readiness Client。
-- `storage/readiness.py` 仅在 MinIO 模式调用 `head_bucket()`。
-- Integration Test 验证真实上传、下载、删除、Cleanup、错误凭据、不存在 Bucket 和停止后恢复。
-
-**为什么没有采用其他方案**
-
-- 不让 FastAPI 使用 Root 凭据，避免应用漏洞扩大为整个对象存储管理权限。
-- 不在每个请求创建 boto3 Client，避免浪费连接池和初始化成本。
-- 不让 Liveness 检查外部依赖，避免 MinIO 故障导致容器被无意义重启。
-- 不在 Local 模式探测 MinIO，否则未使用的依赖会错误阻止应用 Ready。
-
-**常见追问**
-
-- `127.0.0.1:9000` 与 `minio:9000` 分别适用于什么网络位置？
-- 为什么 Readiness Client 不复用业务 Client 的超时与重试配置？
-- 应用账号为什么仍需要 Bucket 级和 Object 级两组 Action？
-- `minio-init` 成功退出为什么不是服务故障？
-
-**容易说错的地方**
-
-- S3-compatible 表示协议兼容，不代表所有云厂商能力、鉴权和扩展完全相同。
-- Readiness 失败表示当前不应接收流量，不表示进程已经死亡。
-- Named Volume 保存对象数据，不保存应用权限设计本身；账号和 Policy 仍由初始化流程管理。
-
-**掌握状态**
-
-`理解 / 能写`：已通过 Compose、最小权限 Policy、boto3 Factory、Readiness 和真实 MinIO 测试验证（2026-08-06）。
-`能讲 / 能画`：待 Sprint 3 收尾口述与白板演练。
 
 ## Sprint 4: AI Gateway
 

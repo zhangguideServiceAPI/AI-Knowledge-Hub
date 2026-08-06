@@ -166,19 +166,18 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint3 (Completed)
-Current Story: Story 3.8 Lifecycle, Testing, Observability & Sprint Review
+Current Sprint: Sprint3 (Planning)
+Current Story: Story 3.0 Storage Evolution & System Map
 Current Goal:
-  - Preserve the completed Storage and Resource Management baseline
-  - Prepare Sprint 4 AI Gateway planning without changing Sprint 3 boundaries
+  - Understand Storage Evolution and Object Storage Boundaries
+  - Confirm Sprint 3 Architecture and Learning Order
 
-Completed:
-  - LocalStorage and MinIO StorageProvider
-  - File Metadata, Upload, Download, Delete and Owner-only access
-  - Lifecycle compensation, callable Cleanup boundary and Storage Readiness
+In Progress:
+  - Storage and Resource Management Planning
+  - Storage Architecture Learning
 
 Not Started:
-  - Sprint 4 AI Gateway implementation
+  - AI Chat
   - RAG
 ```
 

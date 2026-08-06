@@ -29,16 +29,6 @@ class FileRepository:
         )
         return self._session.scalar(statement)
 
-    def get_cleanup_required(
-        self,
-        file_id: str,
-    ) -> FileResource | None:
-        statement = select(FileResource).where(
-            FileResource.id == file_id,
-            FileResource.status == FileStatus.CLEANUP_REQUIRED.value,
-        )
-        return self._session.scalar(statement)
-
     def list_owned(
         self,
         owner_id: int,

@@ -2,13 +2,13 @@
 
 ## 状态
 
-Story 3.0 至 Story 3.8 已完成（2026-08-06）；Sprint 3 已通过验收。
+Story 3.0 至 Story 3.7 已完成（2026-08-05）；当前进入 Story 3.8。
 
 ```text
 Current Sprint: Sprint 3 Storage & Resource Management
-Current Story: Completed
-Current Goal: Preserve the accepted Storage and Resource Management baseline
-Current Step: Prepare Sprint 4 AI Gateway planning
+Current Story: Story 3.8 Lifecycle, Testing, Observability & Sprint Review
+Current Goal: Review the complete file lifecycle and close Sprint 3
+Current Step: Audit lifecycle states, failure recovery, documentation and architecture boundaries
 ```
 
 ## Sprint 定位
@@ -713,7 +713,7 @@ Story 3.2 必须明确：
 
 ### 学习目标
 
-- `PENDING_UPLOAD -> READY -> DELETING -> DELETED/FAILED` 等实际状态转换。
+- `PENDING -> ACTIVE -> DELETE_PENDING -> DELETED/FAILED` 等状态转换。
 - Cleanup Job、Orphan Object 和 Retry 的边界。
 - 同步请求与未来 Async Worker 的职责。
 - Storage 指标、日志和审计事件。
@@ -729,35 +729,6 @@ Story 3.2 必须明确：
 - 更新 README、Project Constitution、Sprint 文档和所有 ADR 状态。
 - 创建端到端 `storage-flow.md` 学习图。
 - 按 Code Review 规范评分，达到 90 分后收尾。
-
-### 验收记录
-
-- [x] Review 对象写入结果不确定路径：写入报错后先幂等删除，失败进入 `CLEANUP_REQUIRED`。
-- [x] 实现只查询待清理资源的 Repository 边界和可重复调用的 `FileService.cleanup_file()`。
-- [x] 验证上传与删除清理终态、未知原因保护、Provider 失败、Metadata 失败重试和重复调用幂等性。
-- [x] 使用真实 MinIO 验证遗留对象删除、Metadata 终态和 Cleanup 幂等性。
-- [x] 完成全量验证、四类 Review、文档收尾、Sprint Commit 和 Annotated Tag。
-
-### Review 结果
-
-```text
-Architecture       ★★★★☆
-Dependency         ★★★★★
-Naming             ★★★★★
-Maintainability    ★★★★☆
-Performance        ★★★★★
-Security           ★★★★★
-Testing            ★★★★★
-Documentation      ★★★★★
-
-Overall            95/100
-```
-
-Review 通过，无阻断问题。已记录以下非阻断边界：
-
-- 自动扫描、Scheduler、Worker、退避和失败告警留到 Sprint 10 Async Platform。
-- 数据库持续故障可能留下陈旧 `PENDING_UPLOAD` 或 `DELETING`；未来对账任务需要按状态和更新时间扫描，不能清理仍在执行的请求。
-- 当前进程只启用一个 Storage Provider；已有数据切换 Provider 必须迁移对象并同步 Metadata，当前不支持混合 Provider 动态路由。
 
 ### 完成标准
 
@@ -776,7 +747,7 @@ Review 通过，无阻断问题。已记录以下非阻断边界：
 | Repository Unit | Owner 过滤、状态、分页、排序和事务边界 |
 | Service Unit | 上传编排、权限、一致性、补偿和日志 |
 | API Test | 201/200/204、401/403/404/409/413/415/503 |
-| Real MinIO Integration | Put/Get/Delete/Cleanup、Bucket 和故障 |
+| Real MinIO Integration | Put/Get/Delete、Signed URL、Bucket 和故障 |
 | Vertical Flow | Login -> Upload -> List -> Download -> Delete -> 再次访问失败 |
 
 测试文件使用生成的数据和临时目录，不把大二进制 Fixture 提交到仓库。Large File Test 使用可控的分块生成器验证流式行为，不依赖真实超大文件。
@@ -835,22 +806,22 @@ Sprint 3 对应 `docs/interview/AI-Agent-Engineer-100.md` 中的 8 道 Storage �
 
 ### 功能
 
-- [x] 上传、列表、Metadata、下载和删除流程完整可用。
-- [x] Owner-only 权限正确，不泄露其他用户资源存在性。
-- [x] Local 和 MinIO Provider 可以在空环境或完成数据迁移后通过配置切换。
-- [x] Metadata 与对象状态在成功和失败路径上都有明确一致性。
-- [x] 文件大小、类型、Object Key 和 SHA-256 策略完成。
+- [ ] 上传、列表、Metadata、下载和删除流程完整可用。
+- [ ] Owner-only 权限正确，不泄露其他用户资源存在性。
+- [ ] Local 和 MinIO Provider 可以通过配置切换。
+- [ ] Metadata 与对象状态在成功和失败路径上都有明确一致性。
+- [ ] 文件大小、类型、Object Key 和 SHA-256 策略完成。
 
 ### 工程
 
-- [x] Service、Repository、Provider、Router 和 Schema 职责边界清晰。
-- [x] Migration Upgrade/Downgrade 通过。
-- [x] 错误码、日志和敏感字段边界完成。
-- [x] Unit、API、真实 MinIO 和纵向测试通过。
-- [x] README、Sprint、Architecture 和 ADR 同步。
-- [x] Sprint 3 的 8 道 Storage 面试题已同步项目证据和掌握状态。
-- [x] Code Review 综合评分达到 90 分及以上。
-- [x] 每个 Story 有独立 Commit，Sprint 有收尾 Commit 和 `sprint3` Tag。
+- [ ] Service、Repository、Provider、Router 和 Schema 职责边界清晰。
+- [ ] Migration Upgrade/Downgrade 通过。
+- [ ] 错误码、日志和敏感字段边界完成。
+- [ ] Unit、API、真实 MinIO 和纵向测试通过。
+- [ ] README、Sprint、Architecture 和 ADR 同步。
+- [ ] Sprint 3 的 8 道 Storage 面试题已同步项目证据和掌握状态。
+- [ ] Code Review 综合评分达到 90 分及以上。
+- [ ] 每个 Story 有独立 Commit，Sprint 有收尾 Commit 和 `sprint3` Tag。
 
 ## 已明确的后续边界
 

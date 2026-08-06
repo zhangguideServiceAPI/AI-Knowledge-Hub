@@ -26,15 +26,6 @@ class FileStatus(StrEnum):
     CLEANUP_REQUIRED = "cleanup_required"
 
 
-class FileFailureReason(StrEnum):
-    PROVIDER_WRITE_FAILED = "provider_write_failed"
-    CLEANUP_FAILED = "cleanup_failed"
-    METADATA_COMMIT_FAILED = "metadata_commit_failed"
-    PROVIDER_DELETE_FAILED = "provider_delete_failed"
-    METADATA_DELETE_COMMIT_FAILED = "metadata_delete_commit_failed"
-    STORAGE_OBJECT_MISSING = "storage_object_missing"
-
-
 class FileResource(Base):
     __tablename__ = "files"
 

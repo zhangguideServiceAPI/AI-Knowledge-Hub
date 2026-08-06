@@ -38,10 +38,9 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - File Resource Metadata、Owner-only 权限、上传、列表、代理下载和幂等删除
 - LocalStorage 与 MinIO 两种可配置 Storage Provider
 - MinIO 最小权限应用账号、Named Volume、一次性 Bucket 初始化和真实集成测试
-- 可重试的文件 Cleanup 边界、Provider/Metadata 一致性保护和生命周期测试
 - MySQL、Redis 与条件化 Storage Readiness
 
-Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。下一阶段进入 Sprint 4 AI Gateway。
+Sprint 2 Session & Identity Management 已完成。Sprint 3 Story 3.0 至 3.7 已完成，当前进行资源生命周期、可观测性、架构边界和 Sprint 验收 Review。
 
 ## 技术栈
 
@@ -108,8 +107,6 @@ cp infra/.env.example infra/.env
 `infra/.env`，应用 Access Key 与 Secret Key 只写入 `backend/.env`。在 `backend/.env` 中设置
 `JWT_ACTIVE_KEY_ID=v1`，并将签名密钥写入
 `JWT_SIGNING_KEYS={"v1":"<generated-secret>"}`。禁止提交真实 `.env` 文件。
-
-`STORAGE_PROVIDER` 为当前进程选择唯一活动 Provider。空环境可以在 `local` 与 `minio` 间切换；已有文件时不能只修改该配置，必须先迁移对象并同步 Metadata。FileService 会拒绝 Provider 或 Bucket 与 Metadata 不匹配的对象操作，避免误读或误删。
 
 ### 2. 安装后端依赖
 

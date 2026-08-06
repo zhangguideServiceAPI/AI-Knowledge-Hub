@@ -8,18 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import logger
 from app.db.repositories.file_repository import FileRepository
-from app.models.file_resource import (
-    FileFailureReason,
-    FileResource,
-    FileStatus,
-)
+from app.models.file_resource import FileResource, FileStatus
 from app.schemas.file import (
     FileResourceListResponse,
     FileResourceResponse,
 )
+from app.storage.provider import StorageProvider
+from app.storage.upload_validation import inspect_upload
 from app.storage.exceptions import (
     EmptyFileError,
-    FileCleanupFailedError,
     FileContentUnavailableError,
     FileDeleteFailedError,
     FileResourceNotFoundError,
@@ -31,8 +28,6 @@ from app.storage.exceptions import (
     StorageUnavailableError,
     UnsupportedFileTypeError,
 )
-from app.storage.provider import StorageProvider
-from app.storage.upload_validation import inspect_upload
 
 
 @dataclass(frozen=True)
@@ -62,21 +57,6 @@ class FileService:
         self._bucket = bucket
         self._max_upload_size = max_upload_size
         self._chunk_size = chunk_size
-
-    def _ensure_storage_matches(
-        self,
-        resource: FileResource,
-    ) -> None:
-        # Metadata 可能属于其他 Provider，禁止用当前 Provider 误操作对象。
-        if (
-            resource.storage_provider != self._storage_provider_name
-            or resource.bucket != self._bucket
-        ):
-            logger.error(
-                "storage.provider.mismatch file_id=%s",
-                resource.id,
-            )
-            raise StorageUnavailableError()
 
     def upload(
         self,
@@ -132,24 +112,6 @@ class FileService:
                 source,
             )
         except StorageOperationError as error:
-            # 写入报错不代表对象一定不存在，因此先执行幂等删除。
-            try:
-                self._storage_provider.delete(object_key)
-            except StorageOperationError as cleanup_error:
-                logger.error(
-                    "storage.upload.failed user_id=%s file_id=%s reason=cleanup_failed",
-                    owner_id,
-                    file_id,
-                )
-                self._repository.update_status(
-                    resource,
-                    FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.CLEANUP_FAILED.value,
-                )
-                self._session.commit()
-
-                raise StorageUnavailableError() from cleanup_error
-
             logger.error(
                 "storage.upload.failed user_id=%s file_id=%s reason=provider_write_failed",
                 owner_id,
@@ -158,7 +120,7 @@ class FileService:
             self._repository.update_status(
                 resource,
                 FileStatus.UPLOAD_FAILED,
-                failure_reason=FileFailureReason.PROVIDER_WRITE_FAILED.value,
+                failure_reason="provider_write_failed",
             )
             self._session.commit()
 
@@ -185,7 +147,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.CLEANUP_FAILED.value,
+                    failure_reason="cleanup_failed",
                 )
                 self._session.commit()
                 raise FileUploadFailedError() from cleanup_error
@@ -193,7 +155,7 @@ class FileService:
             self._repository.update_status(
                 resource,
                 FileStatus.UPLOAD_FAILED,
-                failure_reason=FileFailureReason.METADATA_COMMIT_FAILED.value,
+                failure_reason="metadata_commit_failed",
             )
             self._session.commit()
             logger.error(
@@ -263,8 +225,6 @@ class FileService:
         if resource is None:
             raise FileResourceNotFoundError()
 
-        self._ensure_storage_matches(resource)
-
         object_key = resource.object_key
 
         try:
@@ -296,7 +256,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.PROVIDER_DELETE_FAILED.value,
+                    failure_reason="provider_delete_failed",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -324,9 +284,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=(
-                        FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value
-                    ),
+                    failure_reason="metadata_delete_commit_failed",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -366,8 +324,6 @@ class FileService:
         if resource is None:
             raise FileResourceNotFoundError()
 
-        self._ensure_storage_matches(resource)
-
         try:
             stream = self._storage_provider.open(resource.object_key)
         except StorageObjectNotFoundError as error:
@@ -381,7 +337,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.STORAGE_OBJECT_MISSING.value,
+                    failure_reason="storage_object_missing",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -409,70 +365,3 @@ class FileService:
             size_bytes=resource.size_bytes,
             chunk_size=self._chunk_size,
         )
-
-    def cleanup_file(
-        self,
-        *,
-        file_id: str,
-    ) -> bool:
-        resource = self._repository.get_cleanup_required(file_id)
-
-        if resource is None:
-            return False
-
-        self._ensure_storage_matches(resource)
-
-        upload_cleanup_reasons = {
-            FileFailureReason.CLEANUP_FAILED.value,
-        }
-        delete_cleanup_reasons = {
-            FileFailureReason.PROVIDER_DELETE_FAILED.value,
-            FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value,
-            FileFailureReason.STORAGE_OBJECT_MISSING.value,
-        }
-
-        # 必须先判断目标状态，再删除对象。
-        if resource.failure_reason in upload_cleanup_reasons:
-            target_status = FileStatus.UPLOAD_FAILED
-            deleted_at = None
-        elif resource.failure_reason in delete_cleanup_reasons:
-            target_status = FileStatus.DELETED
-            deleted_at = datetime.now()
-        else:
-            logger.error(
-                "storage.cleanup.failed file_id=%s reason=unsupported_failure_reason",
-                file_id,
-            )
-            raise FileCleanupFailedError()
-
-        try:
-            self._storage_provider.delete(resource.object_key)
-        except StorageOperationError as error:
-            logger.error(
-                "storage.cleanup.failed file_id=%s reason=provider_delete_failed",
-                file_id,
-            )
-            raise StorageUnavailableError() from error
-
-        try:
-            self._repository.update_status(
-                resource,
-                target_status,
-                failure_reason=resource.failure_reason,
-                deleted_at=deleted_at,
-            )
-            self._session.commit()
-        except SQLAlchemyError as error:
-            self._session.rollback()
-            logger.error(
-                "storage.cleanup.failed file_id=%s reason=metadata_commit_failed",
-                file_id,
-            )
-            raise FileCleanupFailedError() from error
-
-        logger.info(
-            "storage.cleanup.success file_id=%s target_status=%s",
-            file_id,
-            target_status.value,
-        )
-        return True
