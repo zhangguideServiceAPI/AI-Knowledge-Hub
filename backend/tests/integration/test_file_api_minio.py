@@ -1,5 +1,6 @@
 from contextlib import suppress
 from hashlib import sha256
+from io import BytesIO
 from os import getenv
 from uuid import uuid4
 
@@ -8,7 +9,9 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.file_resource import FileResource, FileStatus
+from app.models.file_resource import FileFailureReason, FileResource, FileStatus
+from app.models.user import User
+from app.services.file_service import FileService
 from app.storage import factory as storage_factory
 from app.storage.exceptions import StorageOperationError
 
@@ -139,6 +142,81 @@ def test_minio_file_lifecycle(
         if object_key is not None:
             with suppress(StorageOperationError):
                 provider.delete(object_key)
+
+        minio_client.close()
+        storage_factory.get_storage_provider.cache_clear()
+        storage_factory.get_minio_client.cache_clear()
+
+
+def test_minio_cleanup_boundary(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        storage_factory.settings,
+        "STORAGE_PROVIDER",
+        "minio",
+    )
+
+    storage_factory.get_storage_provider.cache_clear()
+    storage_factory.get_minio_client.cache_clear()
+
+    provider = storage_factory.get_storage_provider()
+    minio_client = storage_factory.get_minio_client()
+    bucket = storage_factory.settings.STORAGE_MINIO_BUCKET
+
+    assert bucket is not None
+
+    owner = User(
+        email=f"minio-cleanup-{uuid4().hex}@example.com",
+        password_hash="hashed-password",
+    )
+    session.add(owner)
+    session.flush()
+
+    object_key = f"integration-tests/cleanup-{uuid4().hex}.bin"
+    content = b"real minio cleanup content"
+
+    try:
+        provider.put(object_key, BytesIO(content))
+
+        resource = FileResource(
+            owner_id=owner.id,
+            storage_provider="minio",
+            bucket=bucket,
+            object_key=object_key,
+            original_filename="cleanup.bin",
+            content_type="application/octet-stream",
+            size_bytes=len(content),
+            sha256=sha256(content).hexdigest(),
+            status=FileStatus.CLEANUP_REQUIRED.value,
+            failure_reason=FileFailureReason.PROVIDER_DELETE_FAILED.value,
+        )
+        session.add(resource)
+        session.commit()
+
+        service = FileService(
+            session,
+            provider,
+            storage_provider_name="minio",
+            bucket=bucket,
+            max_upload_size=1024,
+            chunk_size=4,
+        )
+
+        assert provider.exists(object_key) is True
+        assert service.cleanup_file(file_id=resource.id) is True
+        assert service.cleanup_file(file_id=resource.id) is False
+
+        session.expire_all()
+        persisted = session.get(FileResource, resource.id)
+        assert persisted is not None
+        assert persisted.status == FileStatus.DELETED.value
+        assert persisted.deleted_at is not None
+        assert provider.exists(object_key) is False
+    finally:
+        with suppress(StorageOperationError):
+            provider.delete(object_key)
 
         minio_client.close()
         storage_factory.get_storage_provider.cache_clear()

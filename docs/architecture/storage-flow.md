@@ -37,13 +37,13 @@ flowchart TD
     B -->|成功| D["更新 Metadata 为 READY"]
     D -->|成功| E["201 Created"]
     D -->|失败| F["尝试删除刚写入的 Object"]
-    F -->|成功| G["资源保持不可见，恢复后标记 UPLOAD_FAILED"]
+    F -->|成功| G["资源保持不可见，标记 UPLOAD_FAILED"]
     F -->|失败或结果不确定| H["CLEANUP_REQUIRED + ERROR 日志"]
 ```
 
 MySQL 与对象存储没有共享 Transaction。对象写入成功、数据库更新失败时，删除对象是补偿动作，不是假装回滚了一个分布式事务。对象写入报错或网络超时也不必然代表对象不存在；如果 Provider 无法确认结果，Service 同样必须尝试删除对象。只有确认对象不存在或补偿删除成功后，资源才进入 `UPLOAD_FAILED`；补偿失败或结果不确定时进入 `CLEANUP_REQUIRED`。
 
-当前 Sprint 不实现后台 Worker 自动重试。发生失败时 API 返回失败；用户重新上传会创建新的 UUID 与 Object Key。后续 Cleanup Worker 可以根据 `CLEANUP_REQUIRED` 执行重试和对账。
+当前提供可重复调用的 `FileService.cleanup_file(file_id)` 清理边界，但不实现后台 Worker、任务队列或 Scheduler。发生失败时 API 返回失败；用户重新上传会创建新的 UUID 与 Object Key。未来 Cleanup Worker 只负责任务调度和重试，仍复用当前 Service，不重新实现状态机。
 
 ## 3. 下载主线
 
@@ -83,7 +83,25 @@ sequenceDiagram
 
 先提交 `DELETING` 能避免并发下载继续把资源视为可用。Metadata 不立即物理删除，因为 Object 删除失败时它仍是补偿、审计和后续清理的唯一依据。
 
-## 5. 错误、日志与测试
+## 5. Cleanup 重试边界
+
+```mermaid
+flowchart TD
+    A["内部任务传入 file_id"] --> B{"Metadata 是否为 CLEANUP_REQUIRED"}
+    B -->|否| C["返回 False，不访问 Storage"]
+    B -->|是| D{"failure_reason 是否受支持"}
+    D -->|否| E["保留状态并记录固定错误"]
+    D -->|是| F["幂等删除 Storage Object"]
+    F -->|Provider 失败| G["保持 CLEANUP_REQUIRED，等待重试"]
+    F -->|成功，来源是上传| H["更新为 UPLOAD_FAILED"]
+    F -->|成功，来源是删除或对象缺失| I["更新为 DELETED + deleted_at"]
+    H --> J["返回 True"]
+    I --> J
+```
+
+Cleanup 是内部 Service 能力，不暴露用户 Router，也不接收 `owner_id`。Repository 只允许它读取 `CLEANUP_REQUIRED`，未知 `failure_reason` 必须在删除对象前拒绝。对象删除成功但 Metadata 提交失败时，Transaction 回滚后仍保持 `CLEANUP_REQUIRED`；下一次调用可依靠 Provider 的幂等删除重新收尾。
+
+## 6. 错误、日志与测试
 
 日志事件：
 
@@ -95,6 +113,8 @@ sequenceDiagram
 | `storage.provider.unavailable` | ERROR | operation、provider、异常类型 |
 | `storage.compensation.failed` | ERROR | operation、provider、`file_id`、异常类型 |
 | `storage.delete.success` | INFO | `user_id`、`file_id` |
+| `storage.cleanup.success` | INFO | `file_id`、目标状态 |
+| `storage.cleanup.failed` | ERROR | `file_id`、固定 `reason` |
 
 日志不记录原始文件内容、完整 Object Key、Bucket、Signed URL、访问密钥或未经处理的文件名。
 
@@ -107,6 +127,6 @@ sequenceDiagram
 | Service | 上传主线、超限、类型拒绝、Provider 失败、数据库更新失败补偿 |
 | API | 201、401、404、413、415、503、204 契约 |
 | Permission | 非所有者不能列出、读取、下载或删除他人资源 |
-| Integration | Local 与真实 MinIO 的上传、读取、删除与故障路径 |
+| Integration | Local 与真实 MinIO 的上传、读取、删除、Cleanup 与故障路径 |
 
 Provider 故障测试必须覆盖“明确写入失败”和“请求超时、对象结果不确定”两类情况。

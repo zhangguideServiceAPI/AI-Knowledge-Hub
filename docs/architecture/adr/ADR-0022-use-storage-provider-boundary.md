@@ -15,6 +15,7 @@ FileService 需要保存、读取和删除文件 Bytes，但 Local 文件系统�
 - FileRepository 只保存和读取 MySQL Metadata，不调用 Provider SDK。
 - Router 只接收 HTTP UploadFile、认证依赖和响应，不处理对象存储细节。
 - Story 3.3 先提供 LocalStorage 实现；Story 3.7 再提供 MinIO 实现，FileService 主流程不因 Provider 切换而改变。
+- 当前进程只启用一个 Provider；对象操作前必须验证 Metadata 中的 Provider 与 Bucket，配置切换已有数据时需要独立迁移流程。
 
 ## 原因
 
@@ -27,6 +28,7 @@ FileService 需要保存、读取和删除文件 Bytes，但 Local 文件系统�
 - 后续需要为 Provider 定义明确的领域异常和流式输入输出边界。
 - StorageProvider 不是事务管理器；MySQL 与对象存储一致性仍由 FileService 处理。
 - 增加新的 Provider 时必须通过现有 Provider 契约和生命周期测试，而不是让 Router 判断不同 Provider。
+- 当前不支持按单条资源动态路由多个 Provider；该能力只有在真实迁移或混合存储需求出现后再设计 Provider Registry。
 
 ## 未采用方案
 
