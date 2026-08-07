@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 3 - Storage & Resource Management，Story 3.8 收尾中**
+当前阶段：**Sprint 4 - AI Gateway，Story 4.4 Config、Factory 与真实 Provider**
 
 已经完成：
 
@@ -40,8 +40,11 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - MinIO 最小权限应用账号、Named Volume、一次性 Bucket 初始化和真实集成测试
 - 可重试的文件 Cleanup 边界、Provider/Metadata 一致性保护和生命周期测试
 - MySQL、Redis 与条件化 Storage Readiness
+- AI Gateway Architecture、Flow、Security 与 ADR-0025 至 ADR-0027
+- ChatProvider 稳定 DTO、Protocol、领域异常和确定性 Fake Provider
+- Provider 契约、异常与 Fake Provider 的 22 个测试
 
-Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。下一阶段进入 Sprint 4 AI Gateway。
+Sprint 1 Authentication、Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。Sprint 4 已完成 Story 4.0 至 4.3；Factory、真实 Provider、Gateway、ChatService、AI Router、Prompt Center 和 Usage 持久化尚未实现。
 
 ## 技术栈
 
@@ -67,6 +70,7 @@ AI-Knowledge-Hub/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
+│   │   ├── ai/
 │   │   ├── core/
 │   │   ├── db/
 │   │   ├── models/
@@ -221,10 +225,10 @@ docker compose \
 - [项目愿景](docs/项目愿景.md)
 - [AI 协作规范](docs/AI协作规范.md)
 - [Code Review 规范](docs/CodeReview规范.md)
-- [当前 Sprint](docs/Sprint/Sprint3.md)
+- [当前 Sprint](docs/Sprint/Sprint4.md)
 - [API 规范](docs/API规范.md)
 - [架构决策记录](docs/architecture/adr/)
 
 ## Roadmap
 
-项目将逐步实现用户认证、认证会话、用户中心、文档处理、AI Chat、RAG、Workflow、Agent、MCP、监控、异步任务和 k3s。
+完整阶段依赖、状态和企业能力见 [Sprint 长期路线](docs/Sprint/Sprint长期路线.md)。

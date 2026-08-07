@@ -60,17 +60,16 @@ AI 必须遵守以下原则：
 
 ```text
 AI Knowledge Platform
-  -> User
-  -> Knowledge
-  -> Document
-  -> AI Chat
+  -> Identity & Session
+  -> Storage & Resource
+  -> AI Gateway
+  -> Knowledge & RAG
   -> Workflow
-  -> RAG
   -> Agent
   -> MCP
-  -> Monitoring
-  -> CI/CD
-  -> k3s
+  -> Observability
+  -> Async Platform
+  -> Cloud Native
 ```
 
 所有技术都是培养 AI Systems Engineer 的手段，不是最终目标。
@@ -81,9 +80,11 @@ AI Knowledge Platform
 
 ```text
 理解
+  -> 设计
   -> 自己实现
   -> AI 辅助
   -> Review
+  -> 测试验证
   -> 总结
 ```
 
@@ -93,6 +94,7 @@ AI Knowledge Platform
 AI 生成
   -> 直接复制
   -> 不理解
+  -> 不验证
   -> 结束
 ```
 
@@ -166,20 +168,25 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint3 (Completed)
-Current Story: Story 3.8 Lifecycle, Testing, Observability & Sprint Review
+Current Sprint: Sprint 4 AI Gateway
+Current Story: Story 4.4 Config, Factory & Real Provider
 Current Goal:
-  - Preserve the completed Storage and Resource Management baseline
-  - Prepare Sprint 4 AI Gateway planning without changing Sprint 3 boundaries
+  - Connect one real Provider through the stable ChatProvider contract
+  - Keep Provider SDK types, secrets and errors outside business layers
 
 Completed:
+  - Authentication, JWT and global business error mapping
+  - Redis Session, Refresh Rotation, Logout and multi-device management
   - LocalStorage and MinIO StorageProvider
   - File Metadata, Upload, Download, Delete and Owner-only access
   - Lifecycle compensation, callable Cleanup boundary and Storage Readiness
+  - AI Gateway architecture, flow, security and ADR-0025 through ADR-0027
+  - ChatProvider DTO, Protocol, typed errors and deterministic Fake Provider
 
 Not Started:
-  - Sprint 4 AI Gateway implementation
-  - RAG
+  - Provider Factory, real Provider Adapter and AIGateway
+  - ChatService, AI Router, Prompt Center and Usage persistence
+  - Knowledge / RAG implementation
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。
@@ -197,6 +204,14 @@ Not Started:
 - Docker 镜像使用明确版本，不使用 `latest`。
 - MySQL root 账号与应用账号分离，应用遵循最小权限原则。
 - Liveness 与 Readiness 分离，禁止在模块导入阶段连接数据库。
+- Access Token 用于普通 API 身份，Redis Session 控制 Refresh、Logout 和敏感 Session 管理。
+- 文件 Bytes 保存在 StorageProvider，MySQL 只保存可查询、可授权的 File Metadata。
+- LocalStorage 用于快速开发，MinIO 用于真实 S3-compatible 集成验证；FileService 不依赖具体存储 SDK。
+- MySQL 与对象存储没有共享事务，文件生命周期通过状态、补偿和可重试 Cleanup 边界管理。
+- 普通文件访问使用稳定 `file_id` 和 Owner-only 校验，不向客户端暴露内部路径、Bucket 或 Object Key。
+- AI 业务层只依赖项目的稳定 Chat 契约；Provider SDK 类型、真实模型名和凭据不得跨过 Provider 边界。
+- ChatProvider 只抽象文本生成；Embedding、Rerank、Image 和 Tool Calling 按真实能力使用独立 Protocol。
+- Provider Streaming 只产生 `delta / usage / done`，失败通过领域异常上抛；公共 SSE `error` 由上层翻译。
 - 坚持 Documentation First 和 ADR，不因更换 AI 助手而反复建议更换既定框架。
 
 具体决策背景和取舍以 `docs/architecture/adr/` 中已接受的 ADR 为准。
