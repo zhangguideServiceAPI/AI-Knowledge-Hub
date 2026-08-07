@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：7 / 100
+正式完整答案：11 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -67,11 +67,14 @@ Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
 Sprint 2 项目实现：已完成
 Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 
-Sprint 3 学习计划：已完成
-Sprint 3 面试答案：7 / 8，Story 3.0 至 3.6 已同步
+Sprint 3 项目与学习计划：已完成
+Sprint 3 面试答案：8 / 8，项目证据已同步
+
+Sprint 4 学习地图：已完成
+Sprint 4 面试答案：3 / 10，随 Story 4.0 至 4.9 逐步完成
 ```
 
-不暂停 Sprint 3 去一次性补写前 20 道。Sprint 3 推进期间，每周可以额外回填 1 至 2 道 Sprint 1/2 问题；新 Story 的面试题则必须在 Story Review 时同步完成，避免继续产生历史欠账。
+不暂停当前 Sprint 去一次性补写 Sprint 1/2 的 20 道历史答案。Sprint 4 推进期间可以额外回填少量历史问题；新的 Sprint 4 面试题必须在对应 Story Review 时同步完成，避免继续产生欠账。
 
 ## Sprint 1: Authentication
 
@@ -475,13 +478,151 @@ Readiness 还必须按配置有条件执行：Local 模式不访问 MinIO；MinI
 
 ## Sprint 4: AI Gateway
 
-重点问题范围：
+计划形成 10 道核心题：
 
-- 为什么需要统一 LLM Gateway？
-- SSE、Streaming Response 和 WebSocket 如何选择？
-- 如何管理上下文窗口、Token、成本、超时和重试？
-- 如何处理不同模型供应商的协议差异？
-- LLM 调用怎样做限流、熔断、降级和审计？
+1. 为什么业务系统需要 AI Gateway，而不是直接调用 Provider SDK？
+2. Adapter Pattern、Gateway 和简单 SDK Wrapper 有什么区别？
+3. 为什么 Provider 接口应该按 Chat、Embedding 等 Capability 拆分？
+4. Message Role、Token、Context Window 和 Finish Reason 分别是什么？
+5. SSE、StreamingResponse 和 WebSocket 应如何选择？
+6. 为什么 Streaming 发出首个 Token 后不能自动重试？
+7. Timeout、Rate Limit、Context Too Long 和 Provider 5xx 应如何分类和映射？
+8. Prompt 为什么需要 Key、Version、严格变量校验和审计？
+9. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
+10. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
+
+限流、熔断、降级和多 Provider 自动故障转移可以作为系统设计追问，但 Sprint 4 只实现已经进入范围的 Timeout、有限 Retry、统一错误和 Usage，回答时必须区分当前证据与未来演进。
+
+### Q1. 为什么业务系统需要 AI Gateway，而不是直接调用 Provider SDK？
+
+**30 秒简答**
+
+Provider 的 SDK、模型名、请求、响应和异常会变化，业务需要的是稳定的文本生成能力。
+AI Gateway 用模型别名和项目自己的契约隔离这些变化，让 ChatService、未来 RAG 和
+客户端不依赖某个厂商；Adapter 转换 SDK，Gateway 负责选择和调用策略，Service
+负责用户业务与 Usage 终态。
+
+**2 分钟完整回答**
+
+如果 ChatService 直接导入某个 SDK，它会同时知道 API Key、真实模型名、SDK Request、
+原始 Chunk 和异常类。更换 Provider 不再只是配置变化，而会修改业务流程、测试和
+客户端错误语义。本项目将公共 API Schema、内部 ChatRequest、ProviderChatRequest
+和 SDK Model 分开：Gateway 解析模型别名、选择 Provider 并执行调用策略；Factory
+创建 Adapter；Adapter 将 SDK 请求响应转为 `ChatResult` 或 `ChatEvent`，并把原生异常
+转成 `ProviderError`。Gateway 不保存 Memory，Provider 不知道 `user_id`，ChatService
+协调 Prompt、Gateway 和 Usage。当前它仍是应用内边界，不是独立微服务。
+
+**项目中的设计或代码证据**
+
+- ADR-0025 固化 Gateway、Factory、Adapter 和 ChatService 的职责。
+- `app/ai/provider.py` 中的 DTO 和 Protocol 不导入任何厂商 SDK 类型。
+- `FakeChatProvider` 证明业务可以只依赖稳定契约完成确定性测试。
+
+**为什么没有采用其他方案**
+
+- 不让 Router 或 ChatService 直接判断 Provider，避免 HTTP/业务层持有 Secret 和 SDK 类型。
+- 不立即拆独立 Gateway 服务，当前没有跨服务复用和独立扩容证据。
+
+**常见追问**
+
+- Gateway 和 Factory 为什么不是重复职责？
+- 什么情况下应用内 Gateway 应演进成独立服务？
+
+**容易说错的地方**
+
+- Gateway 不是所有 AI 功能的集合，也不负责 Conversation Memory。
+- 使用 OpenAI-compatible 协议不等于不同 Provider 的错误、能力和运营限制完全相同。
+
+**掌握状态**
+
+`理解 / 能画`：已完成职责图、调用链和 ADR（2026-08-07）。
+`能讲 / 能写`：Provider 边界已实现，完整 Gateway 待 Story 4.5。
+
+### Q3. 为什么 Provider 接口应该按 Chat、Embedding 等 Capability 拆分？
+
+**30 秒简答**
+
+不同 Provider 支持的能力不同。把 Chat、Embedding、Rerank、Image 和 Tool Calling
+放进一个万能接口，会强迫实现类提供不支持的方法，也让调用方看不出能力边界。
+当前只定义最小 `ChatProvider.generate/stream`，新能力出现真实需求后再建独立 Protocol。
+
+**2 分钟完整回答**
+
+Capability-specific Interface 是 Interface Segregation 在 Provider 设计中的应用。
+Chat 需要 Message、Finish Reason 和流式 Delta；Embedding 返回向量；Rerank 输入
+Query 与 Documents 并返回排序分数，它们的数据和生命周期不同。硬塞进一个父接口，
+Adapter 只能抛 `NotImplementedError` 或伪造实现，类型契约失去价值。本项目使用结构化
+`Protocol` 约束行为，不规定共同构造函数；当前 Chat 契约只有非流式 `generate()`
+和返回 `AsyncIterator[ChatEvent]` 的 `stream()`。Factory 在外部负责具体初始化。
+
+**项目中的设计或代码证据**
+
+- ADR-0026 记录 Capability-specific 决策和未采用方案。
+- `ChatProvider` 只有两个方法，`ChatEvent` 只有 Delta、Usage 和 Done。
+- Provider Contract Test 检查异步返回类型、不可变 DTO 和事件专属数据。
+
+**为什么没有采用其他方案**
+
+- 不使用万能 Provider 基类，避免大量无意义的方法和构造参数。
+- 不返回原始 SDK Model，否则接口虽然名字统一，调用方仍然绑定厂商。
+
+**常见追问**
+
+- 为什么这里选择 Protocol 而不是 ABC？
+- Tool Calling 应扩展 ChatProvider 还是建立新能力？
+
+**容易说错的地方**
+
+- 接口越小不是目的；边界必须完整表达当前真实能力。
+- Capability 拆分不代表每个方法都单独建一个文件或微服务。
+
+**掌握状态**
+
+`理解 / 能写`：已实现 ChatProvider、DTO、Fake 和 Contract Test（2026-08-07）。
+`能讲 / 能画`：待 Story 4.4 Review 时复述。
+
+### Q10. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
+
+**30 秒简答**
+
+Fake Provider 让上层确定性触发成功、错误、断流和取消；Contract Test 约束所有
+Provider 都必须遵守相同输入输出、异常和清理行为；真实 Integration Test 才证明
+SDK、网络、认证和厂商协议确实可用。三者互补，Fake 通过不能证明真实服务已接入。
+
+**2 分钟完整回答**
+
+Fake Provider 是测试替身，可以预先配置 `ChatResult`、事件序列、错误位置和延迟，
+所以 Service/Gateway 测试不需要网络、Secret 或费用。Contract Test 针对稳定边界，
+验证非流式结果、流事件顺序、异常基类、取消传播和资源关闭；未来 Fake 与真实 Adapter
+都要运行相同契约。Integration Test 跨过 Adapter 边界，检查 SDK 初始化、Base URL、
+真实模型字段、Native Error 转换、HTTP Streaming 和 Usage 映射。它需要显式 Marker、
+真实 Secret、调用次数和 Token 上限，不能放进默认测试套件。
+
+**项目中的设计或代码证据**
+
+- Story 4.3 有 22 个 Provider、异常和 Fake 测试，默认不访问网络。
+- Fake 覆盖流前/流中错误、`aclose()`、任务取消和 `finally` 清理证据。
+- 真实 Adapter 和 Integration Test 尚未实现，属于 Story 4.4。
+
+**为什么没有采用其他方案**
+
+- 不让普通测试调用真实模型，避免不稳定、Secret 泄露和费用失控。
+- 不只做 Mock SDK 方法调用，因为它不能约束上层实际消费的稳定契约。
+
+**常见追问**
+
+- 哪些 Contract Test 应由 Fake 和真实 Adapter 共同运行？
+- Integration Test 如何控制费用和偶发网络失败？
+
+**容易说错的地方**
+
+- Fake Test 证明的是项目逻辑，不证明真实 Provider 协议可用。
+- Integration Test 不是越多越好，必须可控、可隔离且不进入默认离线测试。
+
+**掌握状态**
+
+`理解 / 能写`：Fake 与 22 个离线测试已完成（2026-08-07）。
+`能讲 / 能画`：真实 Integration 分层待 Story 4.4 完成后复查。
 
 ## Sprint 5: RAG
 

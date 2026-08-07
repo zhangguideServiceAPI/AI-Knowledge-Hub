@@ -1,18 +1,56 @@
-# 项目文档
+# AI-Knowledge-Hub 文档地图
 
-本目录保存 AI-Knowledge-Hub 的长期规范、架构决策和 Sprint 交付记录。
+本目录保存项目愿景、长期规则、当前契约、架构决策、Sprint 交付记录和学习证据。
 
-## 开始前必读
+## 当前状态
 
-1. [项目宪法](PROJECT_CONSTITUTION.md)
-2. [项目愿景](项目愿景.md)
-3. [AI 协作规范](AI协作规范.md)
-4. [Code Review 规范](CodeReview规范.md)
-5. 当前 [Sprint](Sprint/)
+```text
+Completed: Sprint 0 Foundation
+Completed: Sprint 1 Authentication
+Completed: Sprint 2 Session & Identity
+Completed: Sprint 3 Storage & Resource Management
+Completed: Sprint 4 Story 4.0-4.3 Design & Provider Contract
+Current:   Sprint 4 AI Gateway - Story 4.4 Real Provider
+Next:      Sprint 5 Knowledge / RAG
+```
 
-## 学习与面试
+当前学习与实施总控文档：[Sprint 4 AI Gateway](Sprint/Sprint4.md)。
 
-- [AI Agent 工程师 100 道高频面试题计划](interview/AI-Agent-Engineer-100.md)
+## 开始新任务时怎么读
+
+### 所有任务必读
+
+1. [项目宪法](PROJECT_CONSTITUTION.md)：最高学习与工程约束。
+2. [项目愿景](项目愿景.md)：产品方向、目标用户和成功标准。
+3. [AI 协作规范](AI协作规范.md)：开发者与 AI 的协作方式。
+4. [当前 Sprint 4](Sprint/Sprint4.md)：当前目标、边界、Story 和小步骤。
+
+### 修改代码前追加阅读
+
+1. 与功能相关的 Architecture 文档和 ADR。
+2. [编码规范](编码规范.md)、[API 规范](API规范.md)和[数据库规范](数据库规范.md)。
+3. [Code Review 规范](CodeReview规范.md)及相关源码、测试。
+
+### 部署或基础设施任务追加阅读
+
+- [部署规范](部署规范.md)
+- 根目录 [README](../README.md)
+- `infra/` 中的实际配置与环境变量示例
+
+## 文档职责
+
+| 文档类型 | 回答的问题 | 是否记录当前进度 |
+| --- | --- | --- |
+| 项目愿景 | 为什么做、为谁做、最终成功是什么 | 否 |
+| 项目宪法 | 所有 AI 和开发工作必须遵守什么 | 只记录当前 Sprint 指针 |
+| 工程规范 | 编码、API、数据库、部署和 Review 的共同规则 | 否 |
+| Architecture | 当前系统结构、流程、安全和领域设计是什么 | 记录当前事实与明确后续边界 |
+| ADR | 为什么接受某项长期技术决策 | 记录决策当时背景，不重写历史 |
+| Sprint | 当前阶段学什么、做什么、如何验收 | 是 |
+| Interview | 如何用项目证据回答高频问题 | 是 |
+| Learning | 不属于当前主线的扩展学习 | 必须标明与当前项目的边界 |
+
+同一个事实只保留一个主要所有者。其他文档使用链接引用，避免复制后产生状态漂移。
 
 ## 工程规范
 
@@ -20,31 +58,70 @@
 - [API 规范](API规范.md)
 - [数据库规范](数据库规范.md)
 - [部署规范](部署规范.md)
+- [Code Review 规范](CodeReview规范.md)
 
-## 架构文档
+## 系统架构
 
 - [系统概览](architecture/system-overview.md)
-- [项目结构](architecture/project-structure.md)
+- [项目结构与分层](architecture/project-structure.md)
+- [架构决策记录](architecture/adr/)
+
+### Authentication & Session
+
 - [认证体系演进](architecture/authentication-evolution.md)
 - [认证总流程](architecture/authentication-flow.md)
-- [认证安全 Review](architecture/authentication-security.md)
+- [认证安全](architecture/authentication-security.md)
 - [Redis Authentication](architecture/redis-authentication.md)
 - [Session Architecture](architecture/session-architecture.md)
 - [Refresh Token Design](architecture/refresh-token-design.md)
 - [Client Refresh Contract](architecture/client-refresh-contract.md)
-- [架构决策记录](architecture/adr/)
+
+### Storage & Resource
+
+- [Storage Evolution](architecture/storage-evolution.md)
+- [Storage Architecture](architecture/storage-architecture.md)
+- [File Resource Design](architecture/file-resource-design.md)
+- [Storage Flow](architecture/storage-flow.md)
+- [Storage Security](architecture/storage-security.md)
+
+### AI Gateway
+
+- [AI Gateway Architecture](architecture/ai-gateway-architecture.md)
+- [AI Gateway Flow](architecture/ai-gateway-flow.md)
+- [AI Gateway Security](architecture/ai-gateway-security.md)
+- [ADR-0025：AI Gateway 边界](architecture/adr/ADR-0025-use-ai-gateway-boundary.md)
+- [ADR-0026：Capability-specific ChatProvider](architecture/adr/ADR-0026-use-capability-specific-chat-provider.md)
+- [ADR-0027：Streaming、Retry 与错误终态](architecture/adr/ADR-0027-streaming-retry-and-terminal-state.md)
+
+当前已实现 Provider 契约、领域异常和 Fake Provider。Factory、真实 Provider、
+AIGateway、ChatService、AI Router、Prompt Center 和 Usage 持久化仍属于后续 Story。
 
 ## Sprint 记录
 
-- [Sprint 0](Sprint/Sprint0.md)
-- [Sprint 1](Sprint/Sprint1.md)
-- [Sprint 2：会话与身份管理（已完成）](Sprint/Sprint2.md)
-- [Sprint 3：存储与资源管理（规划中）](Sprint/Sprint3.md)
+- [Sprint 0：Backend Foundation（已完成）](Sprint/Sprint0.md)
+- [Sprint 1：Authentication（已完成）](Sprint/Sprint1.md)
+- [Sprint 2：Session & Identity（已完成）](Sprint/Sprint2.md)
+- [Sprint 3：Storage & Resource Management（已完成）](Sprint/Sprint3.md)
+- [Sprint 4：AI Gateway（Story 4.4 进行中）](Sprint/Sprint4.md)
 - [Sprint 长期路线](Sprint/Sprint长期路线.md)
 
-## 维护边界
+历史 Sprint 是阶段交付证据。即使其中保留了当时的“候选”或“下一步”表述，也不应改写为新 Sprint 的当前计划；当前状态以本页、项目宪法和当前 Sprint 为准。
 
-- 根目录规范文档记录长期有效的项目规则。
-- `architecture/` 记录系统结构和已经接受的架构决策。
-- `Sprint/` 记录阶段目标、Story、验收结果和总结。
-- 项目实际目录结构以根目录 `README.md` 和仓库当前状态为准，不单独维护容易过期的目录快照。
+## 学习与面试
+
+- [AI Agent 工程师 100 道高频面试题计划](interview/AI-Agent-Engineer-100.md)
+
+## 扩展学习
+
+- [知识蒸馏与图片识别训练流程](learning/knowledge-distillation-and-image-training.md)
+
+扩展学习文档不代表项目已经实现对应能力，也不能改变当前 Sprint 边界。
+
+## 维护规则
+
+- 新 Feature 同步 Sprint、API、Architecture 和必要 ADR。
+- 文档中的“已实现”必须能指向真实代码、测试或基础设施证据。
+- 候选设计使用“候选 / 计划 / 后续边界”标记，不与当前事实混写。
+- 当前 Sprint 变化时同步本页、根 README 和项目宪法的 Current State。
+- 复杂功能优先提供思维导图、端到端流程图及必要时序图或状态图。
+- Markdown 修改后检查单一 H1、标题层级、代码围栏、内部链接和 `git diff --check`。
