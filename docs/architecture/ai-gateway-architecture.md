@@ -2,8 +2,9 @@
 
 ## 文档状态
 
-Story 4.2 设计已确认，Story 4.3 已实现最小 ChatProvider 契约与 Fake Provider。
-本文同时标注当前代码和目标调用链；虚线能力不能理解为已经进入运行时。
+Story 4.2 设计已确认，Story 4.3 已实现最小 ChatProvider 契约与 Fake Provider，
+Story 4.4 已实现配置、Factory 与真实 Adapter。本文同时标注当前代码和目标调用链；
+虚线能力不能理解为已经进入运行时。
 
 ## 架构目标
 
@@ -48,18 +49,18 @@ flowchart LR
     G -.-> M["Model Alias Policy"]
     G -.-> F["Provider Factory"]
 
-    F -.-> A["Real Provider Adapter"]
-    A -.-> L["External LLM"]
+    F --> A["Real Provider Adapter"]
+    A --> L["External LLM"]
 
-    G --> CP["ChatProvider Protocol"]
+    G -.-> CP["ChatProvider Protocol"]
     FP["FakeChatProvider"] --> CP
-    A -.-> CP
+    A --> CP
 
     S -.-> U["UsageRepository"]
     U -.-> D[("MySQL")]
 ```
 
-实线表示 Story 4.3 已有代码和测试，虚线表示后续 Story 的已确认设计。
+实线表示 Story 4.3/4.4 已有代码和测试，虚线表示后续 Story 的已确认设计。
 
 ## 职责边界
 

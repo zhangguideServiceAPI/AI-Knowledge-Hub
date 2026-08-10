@@ -317,3 +317,147 @@ def test_settings_rejects_invalid_minio_config(
         )
 
     assert error.value.errors()[0]["loc"] == (field,)
+
+
+def test_settings_defaults_to_empty_ai_provider_registry() -> None:
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        AI_PROVIDERS={},
+    )
+
+    assert settings.AI_PROVIDERS == {}
+
+
+def test_settings_loads_multiple_ai_provider_configs() -> None:
+    primary_api_key = "test-primary-api-key"
+    backup_api_key = "test-backup-api-key"
+
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        AI_PROVIDERS={
+            "primary": {
+                "provider_type": "openai_compatible",
+                "api_key": primary_api_key,
+                "base_url": "https://primary.example.com/v1",
+                "connect_timeout_seconds": 0.5,
+                "read_timeout_seconds": 1.25,
+            },
+            "backup": {
+                "provider_type": "openai_compatible",
+                "api_key": backup_api_key,
+                "base_url": "https://backup.example.com/v1",
+            },
+        },
+    )
+
+    assert set(settings.AI_PROVIDERS) == {"primary", "backup"}
+
+    primary = settings.AI_PROVIDERS["primary"]
+    assert primary.provider_type == "openai_compatible"
+    assert primary.api_key.get_secret_value() == primary_api_key
+    assert str(primary.api_key) == "**********"
+    assert str(primary.base_url) == "https://primary.example.com/v1"
+    assert primary.connect_timeout_seconds == 0.5
+    assert primary.read_timeout_seconds == 1.25
+
+    backup = settings.AI_PROVIDERS["backup"]
+    assert backup.api_key.get_secret_value() == backup_api_key
+    assert str(backup.api_key) == "**********"
+    assert backup.connect_timeout_seconds == 5.0
+    assert backup.read_timeout_seconds == 60.0
+
+    settings_repr = repr(settings.AI_PROVIDERS)
+    assert primary_api_key not in settings_repr
+    assert backup_api_key not in settings_repr
+
+
+def test_settings_parses_ai_providers_from_json_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AI_PROVIDERS",
+        '{"primary":{"provider_type":"openai_compatible",'
+        '"api_key":"test-env-api-key",'
+        '"base_url":"https://api.example.com/v1"}}',
+    )
+
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+    )
+
+    provider = settings.AI_PROVIDERS["primary"]
+    assert provider.provider_type == "openai_compatible"
+    assert provider.api_key.get_secret_value() == "test-env-api-key"
+    assert str(provider.base_url) == "https://api.example.com/v1"
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "provider_type",
+        "api_key",
+        "base_url",
+    ],
+)
+def test_settings_rejects_incomplete_ai_provider_config(
+    missing_field: str,
+) -> None:
+    provider_config: dict[str, object] = {
+        "provider_type": "openai_compatible",
+        "api_key": "test-ai-api-key",
+        "base_url": "https://api.example.com/v1",
+    }
+    provider_config.pop(missing_field)
+
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            AI_PROVIDERS={"primary": provider_config},
+        )
+
+    assert error.value.errors()[0]["loc"] == (
+        "AI_PROVIDERS",
+        "primary",
+        missing_field,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("provider_type", "unknown_provider"),
+        ("api_key", ""),
+        ("base_url", "not-a-url"),
+        ("connect_timeout_seconds", 0),
+        ("read_timeout_seconds", 0),
+    ],
+)
+def test_settings_rejects_invalid_ai_provider_config(
+    field: str,
+    value: str | int,
+) -> None:
+    provider_config: dict[str, object] = {
+        "provider_type": "openai_compatible",
+        "api_key": "test-ai-api-key",
+        "base_url": "https://api.example.com/v1",
+        "connect_timeout_seconds": 5,
+        "read_timeout_seconds": 60,
+    }
+    provider_config[field] = value
+
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            AI_PROVIDERS={"primary": provider_config},
+        )
+
+    assert error.value.errors()[0]["loc"] == (
+        "AI_PROVIDERS",
+        "primary",
+        field,
+    )

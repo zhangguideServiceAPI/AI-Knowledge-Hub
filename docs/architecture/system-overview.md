@@ -107,8 +107,9 @@ AI Router
        -> ChatUsageRepository -> MySQL
 ```
 
-该结构的职责边界已经由 Story 4.2 确认，但 Factory、真实 Adapter、Gateway、
-Service、Router、Prompt 和 Usage Repository 仍未实现，不能画入当前实线运行架构。
+该结构的职责边界已经由 Story 4.2 确认。Factory 与真实 Adapter 已在 Story 4.4
+实现并通过真实联调；Gateway、Service、Router、Prompt 和 Usage Repository 仍未实现，
+不能画入当前实线运行架构。
 
 ## 相关文档
 

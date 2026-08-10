@@ -2,8 +2,8 @@
 
 ## 文档状态
 
-Story 4.2 流程设计已确认。当前只有 ChatProvider 契约与 Fake Provider 可执行；
-Router、ChatService、AIGateway、Factory、真实 Adapter 和 UsageRepository 是后续实现。
+Story 4.2 流程设计已确认。ChatProvider 契约、Fake Provider、Factory 与真实 Adapter
+已经可执行；Router、ChatService、AIGateway 和 UsageRepository 是后续实现。
 
 ## 非流式调用链
 
@@ -133,7 +133,7 @@ Python 取消使用原生 `asyncio.CancelledError`，不能包装成 Provider Er
 这里存在两条不同 HTTP 连接：客户端到 FastAPI 的下游连接由 Router 管理，FastAPI
 到 LLM 的上游连接由 Provider Adapter/SDK 管理。取消必须沿调用链传播，才能同时释放两端。
 
-## 当前 Fake Provider 的验证位置
+## 当前 Provider 验证位置
 
 Fake Provider 在不访问网络的情况下验证：
 
@@ -143,7 +143,8 @@ Fake Provider 在不访问网络的情况下验证：
 - 主动 `aclose()` 与任务取消都会进入 `finally` 并标记关闭。
 - 非法错误位置和负延迟配置会立即拒绝。
 
-真实 Adapter 在 Story 4.4 必须复用这些行为约束，而不是为自己的 SDK 另造契约。
+Story 4.4 的真实 Adapter 已复用这些行为约束，并额外验证 SDK 请求映射、原生错误
+清理、畸形响应、流资源关闭以及显式开启的真实非流式/Streaming 联调。
 
 ## 相关文档
 

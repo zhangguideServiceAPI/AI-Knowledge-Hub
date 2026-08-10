@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.4 Config, Factory & Real Provider
+Current Story: Story 4.5 AIGateway & Non-stream Chat API
 Current Goal:
-  - Connect one real Provider through the stable ChatProvider contract
-  - Keep Provider SDK types, secrets and errors outside business layers
+  - Resolve model aliases and route stable requests through AIGateway
+  - Complete the first authenticated non-stream Chat API vertical path
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -182,10 +182,12 @@ Completed:
   - Lifecycle compensation, callable Cleanup boundary and Storage Readiness
   - AI Gateway architecture, flow, security and ADR-0025 through ADR-0027
   - ChatProvider DTO, Protocol, typed errors and deterministic Fake Provider
+  - AI Provider registry, cached Factory and OpenAI-compatible real Adapter
+  - Safe Provider error translation and opt-in real non-stream/stream tests
 
 Not Started:
-  - Provider Factory, real Provider Adapter and AIGateway
-  - ChatService, AI Router, Prompt Center and Usage persistence
+  - AIGateway, ChatService and AI Router
+  - Prompt Center and Usage persistence
   - Knowledge / RAG implementation
 ```
 

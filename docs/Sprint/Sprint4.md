@@ -2,15 +2,15 @@
 
 ## 状态
 
-Sprint 4 正在实施。Story 4.0 至 4.2 已完成学习与设计，Story 4.3 已实现
-Provider 稳定契约、领域异常、Fake Provider 和对应测试；AI Gateway、Factory、
-真实 Provider、Router、Prompt Center 与 Usage 持久化尚未实现。
+Sprint 4 正在实施。Story 4.0 至 4.4 已完成：Provider 稳定契约、领域异常、
+Fake Provider、配置注册表、Factory 和 OpenAI-compatible Adapter 已有代码与测试；
+AI Gateway、Router、Prompt Center 与 Usage 持久化尚未实现。
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.4 Config, Factory & Real Provider
-Current Goal: 使用现有 ChatProvider 契约接入一个真实 Provider
-Current Step: Step 1 - 确认 Provider 协议、SDK 与配置边界
+Current Story: Story 4.5 AIGateway & Non-stream Chat API
+Current Goal: 组合 Gateway、ChatService 与稳定非流式 Chat API
+Current Step: Step 1 - 确认模型别名、Gateway 策略与 Service 编排边界
 ```
 
 | Story | 状态 | 已形成的证据 |
@@ -19,7 +19,8 @@ Current Step: Step 1 - 确认 Provider 协议、SDK 与配置边界
 | 4.1 LLM & HTTP Streaming Foundation | 已完成 | Token、Context、SSE、取消与 Backpressure 设计 |
 | 4.2 Domain, API & Failure Design | 已完成 | 分层契约、失败矩阵、三份架构文档与 ADR-0025 至 ADR-0027 |
 | 4.3 ChatProvider & Fake Provider | 已完成 | Provider DTO、Protocol、领域异常、Fake 与 22 个测试 |
-| 4.4 Config, Factory & Real Provider | 当前 | 尚未安装 SDK 或编写真实 Adapter |
+| 4.4 Config, Factory & Real Provider | 已完成 | Provider Registry、Factory 缓存、真实 Adapter 与真实联调 |
+| 4.5 AIGateway & Non-stream Chat API | 当前 | 待确认模型别名与纵向调用边界 |
 
 ## Sprint 定位
 
@@ -812,7 +813,7 @@ ChatService 应负责：
 - `app/ai/exceptions.py` 定义 Rate Limit、Timeout、Unavailable 和 Stream 领域异常。
 - `app/ai/providers/fake.py` 支持确定性的非流式成功/失败、流式事件、流前/流中错误、延迟、关闭和取消。
 - Provider 契约、异常和 Fake Provider 共 22 个测试通过；完整非 Integration 测试、Ruff 与格式检查通过。
-- 当前没有 Factory、真实 Provider、Gateway、ChatService 或 AI Router；这些能力不能从 Fake Provider 的存在推断为已经完成。
+- Story 4.3 完成时尚未实现 Factory、真实 Provider、Gateway、ChatService 或 AI Router；这些能力不能从 Fake Provider 的存在推断为已经完成。
 
 ## Story 4.4: Config, Factory & Real Provider
 
@@ -844,6 +845,14 @@ ChatService 应负责：
 - API Key 只来自 Settings Secret，不进入提交内容。
 - Provider 临时不可用不会让整个应用 Readiness 失败。
 - Story Review、文档同步和 Commit 完成。
+
+### 完成记录
+
+- `AI_PROVIDERS` 使用 Provider Key 到受校验配置的注册表；API Key 由 `SecretStr` 持有，Base URL 必须指向兼容 API 根路径。
+- Factory 按 Provider Key 创建并缓存 Adapter，SDK 内部重试关闭，连接、读取、写入和连接池等待均使用显式 Timeout。
+- `OpenAICompatibleChatProvider` 完成请求、结果、Usage、Finish Reason、异常和 Streaming Event 转换，并在取消或结束时关闭上游 Stream。
+- 单元测试覆盖成功、缺失 Usage、错误翻译、畸形响应、流前/流中失败、主动关闭和任务取消；真实 Integration Test 默认跳过且限制为两次短请求。
+- 使用配置的真实 Provider 完成非流式与 Streaming 联调；完整离线测试、Ruff、格式检查和文档检查通过。
 
 ## Story 4.5: AIGateway & Non-stream Chat API
 
