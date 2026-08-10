@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 4 - AI Gateway，Story 4.4 Config、Factory 与真实 Provider**
+当前阶段：**Sprint 4 - AI Gateway，Story 4.5 AIGateway 与非流式 Chat API**
 
 已经完成：
 
@@ -43,8 +43,10 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - AI Gateway Architecture、Flow、Security 与 ADR-0025 至 ADR-0027
 - ChatProvider 稳定 DTO、Protocol、领域异常和确定性 Fake Provider
 - Provider 契约、异常与 Fake Provider 的 22 个测试
+- 多 Provider 配置注册表、按 Provider Key 缓存的 Factory
+- OpenAI-compatible 真实 Adapter、错误清理和非流式/流式真实联调
 
-Sprint 1 Authentication、Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。Sprint 4 已完成 Story 4.0 至 4.3；Factory、真实 Provider、Gateway、ChatService、AI Router、Prompt Center 和 Usage 持久化尚未实现。
+Sprint 1 Authentication、Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。Sprint 4 已完成 Story 4.0 至 4.4；Gateway、ChatService、AI Router、Prompt Center 和 Usage 持久化尚未实现。
 
 ## 技术栈
 
@@ -58,6 +60,7 @@ Sprint 1 Authentication、Sprint 2 Session & Identity Management 和 Sprint 3 St
 - Redis 7.4
 - MinIO
 - boto3
+- OpenAI Python SDK
 - Docker / Docker Compose
 - pytest
 

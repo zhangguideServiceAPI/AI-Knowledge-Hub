@@ -10,6 +10,7 @@ dependencies = [
     "boto3==1.43.64",
     "email-validator==2.2.0",
     "fastapi==0.115.6",
+    "openai==2.53.0",
     "pydantic==2.10.4",
     "pydantic-settings==2.7.0",
     "pymysql==1.1.1",
@@ -32,5 +33,5 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
-    "integration: requires real external services such as Redis or MinIO",
+    "integration: requires real external services such as Redis, MinIO, or AI providers",
 ]

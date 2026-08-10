@@ -3,6 +3,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
+    BaseModel,
     Field,
     PositiveFloat,
     PositiveInt,
@@ -24,6 +25,14 @@ JwtSigningSecret = Annotated[
     SecretStr,
     Field(min_length=32),
 ]
+
+
+class AIProviderConfig(BaseModel):
+    provider_type: Literal["openai_compatible"]
+    api_key: SecretStr = Field(min_length=1)
+    base_url: AnyHttpUrl
+    connect_timeout_seconds: PositiveFloat = 5.0
+    read_timeout_seconds: PositiveFloat = 60.0
 
 
 class Settings(BaseSettings):
@@ -80,6 +89,10 @@ class Settings(BaseSettings):
     )
     MAX_UPLOAD_SIZE_BYTES: PositiveInt = 20 * 1024 * 1024
     UPLOAD_CHUNK_SIZE_BYTES: PositiveInt = 1024 * 1024
+
+    AI_PROVIDERS: dict[str, AIProviderConfig] = Field(
+        default_factory=dict,
+    )
 
     @model_validator(mode="after")
     def validate_session_expiration(self) -> Self:
