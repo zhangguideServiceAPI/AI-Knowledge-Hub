@@ -3,10 +3,66 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import AIModelConfig, Settings
 
 VALID_JWT_SECRET = "test-only-jwt-secret-key-32-characters"
 VALID_REDIS_PASSWORD = "test-only-redis-password"
+
+
+def test_ai_model_config_accepts_valid_token_limits() -> None:
+    config = AIModelConfig(
+        provider_key="primary",
+        provider_model="gpt-5.5",
+        default_temperature=0.3,
+        default_max_output_tokens=512,
+        max_output_tokens=1024,
+        context_window_tokens=4096,
+    )
+
+    assert config.default_max_output_tokens == 512
+    assert config.max_output_tokens == 1024
+    assert config.context_window_tokens == 4096
+
+
+@pytest.mark.parametrize(
+    (
+        "default_max_output_tokens",
+        "max_output_tokens",
+        "context_window_tokens",
+        "expected_message",
+    ),
+    [
+        (
+            2048,
+            1024,
+            4096,
+            "default_max_output_tokens",
+        ),
+        (
+            512,
+            4096,
+            4096,
+            "max_output_tokens",
+        ),
+    ],
+)
+def test_ai_model_config_rejects_invalid_token_limits(
+    default_max_output_tokens: int,
+    max_output_tokens: int,
+    context_window_tokens: int,
+    expected_message: str,
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        AIModelConfig(
+            provider_key="primary",
+            provider_model="gpt-5.5",
+            default_temperature=0.3,
+            default_max_output_tokens=default_max_output_tokens,
+            max_output_tokens=max_output_tokens,
+            context_window_tokens=context_window_tokens,
+        )
+
+    assert expected_message in error.value.errors()[0]["msg"]
 
 
 def test_settings_loads_redis_config() -> None:
@@ -327,6 +383,85 @@ def test_settings_defaults_to_empty_ai_provider_registry() -> None:
     )
 
     assert settings.AI_PROVIDERS == {}
+    assert settings.AI_MODELS == {}
+    assert settings.AI_DEFAULT_MODEL_ALIAS is None
+
+
+def test_settings_uses_default_ai_retry_policy() -> None:
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+    )
+
+    assert settings.AI_MAX_RETRY_ATTEMPTS == 1
+    assert settings.AI_RETRY_BACKOFF_SECONDS == 0.2
+    assert settings.AI_TOTAL_DEADLINE_SECONDS == 65.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("AI_MAX_RETRY_ATTEMPTS", 0),
+        ("AI_MAX_RETRY_ATTEMPTS", 3),
+        ("AI_RETRY_BACKOFF_SECONDS", 0.0),
+        ("AI_RETRY_BACKOFF_SECONDS", 5.0),
+        ("AI_TOTAL_DEADLINE_SECONDS", 0.001),
+        ("AI_TOTAL_DEADLINE_SECONDS", 300.0),
+    ],
+)
+def test_settings_accepts_ai_retry_policy_boundaries(
+    field: str,
+    value: int | float,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        **{field: value},
+    )
+
+    assert getattr(settings, field) == value
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("AI_MAX_RETRY_ATTEMPTS", -1),
+        ("AI_MAX_RETRY_ATTEMPTS", 4),
+        ("AI_RETRY_BACKOFF_SECONDS", -0.1),
+        ("AI_RETRY_BACKOFF_SECONDS", 5.1),
+        ("AI_TOTAL_DEADLINE_SECONDS", 0.0),
+        ("AI_TOTAL_DEADLINE_SECONDS", 301.0),
+    ],
+)
+def test_settings_rejects_invalid_ai_retry_policy(
+    field: str,
+    value: int | float,
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            **{field: value},
+        )
+
+    assert error.value.errors()[0]["loc"] == (field,)
+
+
+def test_settings_parses_ai_retry_policy_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_MAX_RETRY_ATTEMPTS", "2")
+    monkeypatch.setenv("AI_RETRY_BACKOFF_SECONDS", "0.5")
+    monkeypatch.setenv("AI_TOTAL_DEADLINE_SECONDS", "120")
+
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+    )
+
+    assert settings.AI_MAX_RETRY_ATTEMPTS == 2
+    assert settings.AI_RETRY_BACKOFF_SECONDS == 0.5
+    assert settings.AI_TOTAL_DEADLINE_SECONDS == 120.0
 
 
 def test_settings_loads_multiple_ai_provider_configs() -> None:
@@ -392,6 +527,97 @@ def test_settings_parses_ai_providers_from_json_environment(
     assert provider.provider_type == "openai_compatible"
     assert provider.api_key.get_secret_value() == "test-env-api-key"
     assert str(provider.base_url) == "https://api.example.com/v1"
+
+
+def test_settings_parses_ai_model_registry_from_json_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_DEFAULT_MODEL_ALIAS", "general")
+    monkeypatch.setenv(
+        "AI_PROVIDERS",
+        '{"primary":{'
+        '"provider_type":"openai_compatible",'
+        '"api_key":"test-api-key",'
+        '"base_url":"https://api.example.com/v1"'
+        "}}",
+    )
+    monkeypatch.setenv(
+        "AI_MODELS",
+        '{"general":{'
+        '"provider_key":"primary",'
+        '"provider_model":"gpt-5.5",'
+        '"default_temperature":0.3,'
+        '"default_max_output_tokens":512,'
+        '"max_output_tokens":1024,'
+        '"context_window_tokens":4096'
+        "}}",
+    )
+
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+    )
+
+    assert settings.AI_DEFAULT_MODEL_ALIAS == "general"
+
+    model = settings.AI_MODELS["general"]
+    assert model.provider_key == "primary"
+    assert model.provider_model == "gpt-5.5"
+    assert model.default_temperature == 0.3
+    assert model.default_max_output_tokens == 512
+    assert model.max_output_tokens == 1024
+    assert model.context_window_tokens == 4096
+
+
+def test_settings_rejects_unknown_default_model_alias() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="AI_DEFAULT_MODEL_ALIAS must exist in AI_MODELS",
+    ):
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            AI_PROVIDERS={
+                "primary": {
+                    "provider_type": "openai_compatible",
+                    "api_key": "test-api-key",
+                    "base_url": "https://api.example.com/v1",
+                }
+            },
+            AI_MODELS={
+                "general": {
+                    "provider_key": "primary",
+                    "provider_model": "gpt-5.5",
+                    "default_temperature": 0.3,
+                    "default_max_output_tokens": 512,
+                    "max_output_tokens": 1024,
+                    "context_window_tokens": 4096,
+                }
+            },
+            AI_DEFAULT_MODEL_ALIAS="missing",
+        )
+
+
+def test_settings_rejects_model_with_unknown_provider() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="must exist in AI_PROVIDERS",
+    ):
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            AI_PROVIDERS={},
+            AI_MODELS={
+                "general": {
+                    "provider_key": "missing",
+                    "provider_model": "gpt-5.5",
+                    "default_temperature": 0.3,
+                    "default_max_output_tokens": 512,
+                    "max_output_tokens": 1024,
+                    "context_window_tokens": 4096,
+                }
+            },
+        )
 
 
 @pytest.mark.parametrize(

@@ -113,16 +113,25 @@ Provider -> User Permission
 
 ## Sprint 4 当前扩展
 
-Story 4.3 已新增以下真实结构：
+Story 4.5 已新增以下真实结构：
 
 ```text
 app/ai/
   provider.py          # Provider DTO、ChatEvent 与 ChatProvider Protocol
   exceptions.py        # Provider 层可预期领域异常
+  gateway.py           # 模型别名解析、Context 预检、Retry、Deadline 与稳定结果
+  factory.py           # 根据 Provider Key 创建并缓存 Adapter
   providers/
     fake.py            # 不访问网络的确定性测试替身
+    openai_compatible.py # OpenAI-compatible SDK Adapter
+app/api/
+  ai.py                # 认证的非流式 POST /ai/chat
+app/schemas/
+  ai.py                # 公共 Chat Request/Response 与 AI 错误响应
+app/services/
+  chat_service.py      # 公共请求到 Gateway 的业务编排
 ```
 
-`gateway.py`、`factory.py` 和真实 Adapter 将在后续 Story 出现真实职责时新增。
-Router、ChatService、公共 Schema、Model 和 Repository 仍放在现有对应目录；
-当前不存在这些 AI 业务模块，也不存在已经实现的 `/ai/chat` API。
+`models/chat_usage.py`、`db/repositories/chat_usage_repository.py` 和流式 Router
+仍未创建，分别留给 Usage 与 Streaming Story。Prompt Center 也尚未接入
+ChatService；当前 Service 使用受控 USER Message 完成非流式主线。

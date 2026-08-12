@@ -15,6 +15,9 @@ from app.services.file_service import FileService
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
+from app.ai.factory import get_chat_provider
+from app.ai.gateway import AIGateway
+from app.services.chat_service import ChatService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -62,3 +65,21 @@ def get_file_service(
         max_upload_size=settings.MAX_UPLOAD_SIZE_BYTES,
         chunk_size=settings.UPLOAD_CHUNK_SIZE_BYTES,
     )
+
+
+def get_ai_gateway() -> AIGateway:
+    return AIGateway(
+        model_configs=settings.AI_MODELS,
+        default_model_alias=settings.AI_DEFAULT_MODEL_ALIAS,
+        provider_factory=get_chat_provider,
+        max_retry_attempts=settings.AI_MAX_RETRY_ATTEMPTS,
+        retry_backoff_seconds=settings.AI_RETRY_BACKOFF_SECONDS,
+        total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
+    )
+
+
+def get_chat_service(
+    # FastAPI 先调用 get_ai_gateway()，再把结果注入这个参数。
+    gateway: Annotated[AIGateway, Depends(get_ai_gateway)],
+) -> ChatService:
+    return ChatService(gateway)

@@ -2,6 +2,14 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
+from app.ai.exceptions import (
+    AIError,
+    AIInvalidModelError,
+    AIInvalidRequestError,
+    AIProviderRateLimitError,
+    AIProviderTimeoutError,
+    AIProviderUnavailableError,
+)
 from app.core.exceptions import (
     EmailAlreadyRegisteredError,
     InactiveUserError,
@@ -12,6 +20,7 @@ from app.core.exceptions import (
     UserSessionNotFoundError,
 )
 from app.core.logging import logger
+from app.schemas.ai import AIErrorCode, AIErrorResponse
 from app.schemas.error import ErrorResponse
 from app.storage.exceptions import (
     EmptyFileError,
@@ -246,6 +255,71 @@ async def file_content_unavailable_handler(
     )
 
 
+# key 是异常类，value 依次是 HTTP 状态码、公共错误码和安全文案。
+_AI_ERROR_RESPONSES: dict[
+    type[AIError],
+    tuple[int, AIErrorCode, str],
+] = {
+    AIInvalidModelError: (
+        status.HTTP_400_BAD_REQUEST,
+        AIErrorCode.INVALID_MODEL,
+        "Requested AI model is not available.",
+    ),
+    AIInvalidRequestError: (
+        status.HTTP_400_BAD_REQUEST,
+        AIErrorCode.INVALID_REQUEST,
+        "AI request parameters are invalid.",
+    ),
+    AIProviderRateLimitError: (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        AIErrorCode.PROVIDER_RATE_LIMIT,
+        "AI service is temporarily rate limited.",
+    ),
+    AIProviderTimeoutError: (
+        status.HTTP_504_GATEWAY_TIMEOUT,
+        AIErrorCode.PROVIDER_TIMEOUT,
+        "AI service timed out.",
+    ),
+    AIProviderUnavailableError: (
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        AIErrorCode.PROVIDER_UNAVAILABLE,
+        "AI service is temporarily unavailable.",
+    ),
+}
+
+
+async def ai_error_handler(
+    request: Request,
+    error: AIError,
+) -> JSONResponse:
+    status_code, code, detail = _AI_ERROR_RESPONSES.get(
+        type(error),
+        (
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            AIErrorCode.INTERNAL_ERROR,
+            "AI service failed to process the request.",
+        ),
+    )
+
+    # 只记录固定字段，禁止记录 str(error) 或 Provider 原始异常。
+    logger.error(
+        "ai.request.failed method=%s path=%s code=%s error_type=%s",
+        request.method,
+        request.url.path,
+        code.value,
+        type(error).__name__,
+    )
+
+    response = AIErrorResponse(
+        code=code,
+        detail=detail,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=response.model_dump(mode="json"),
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         EmailAlreadyRegisteredError,
@@ -293,3 +367,4 @@ def register_exception_handlers(app: FastAPI) -> None:
         FileContentUnavailableError,
         file_content_unavailable_handler,
     )
+    app.add_exception_handler(AIError, ai_error_handler)

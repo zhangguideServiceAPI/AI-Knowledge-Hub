@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.exception_handlers import register_exception_handlers
 from app.api.files import router as files_router
@@ -20,3 +21,4 @@ app.include_router(auth_router)
 app.include_router(files_router)
 app.include_router(health_router)
 app.include_router(user_router)
+app.include_router(ai_router)
