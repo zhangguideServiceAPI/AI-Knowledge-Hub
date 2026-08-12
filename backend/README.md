@@ -74,5 +74,14 @@ AI_INTEGRATION_MODEL=<provider-model> \
 uv run pytest -q tests/integration/test_openai_compatible_provider_integration.py
 ```
 
+只验证一次真实非流式 HTTP 纵向调用（最多 16 输出 Token）：
+
+```bash
+RUN_AI_INTEGRATION_TESTS=1 \
+AI_INTEGRATION_MODEL_ALIAS=general \
+uv run pytest -q \
+tests/integration/test_openai_compatible_provider_integration.py::test_real_non_stream_chat_api_vertical_path
+```
+
 真实凭据只写入未提交的 `.env` 中的 `AI_PROVIDERS`；其中 `base_url` 是兼容 API
 根路径，例如以 `/v1` 结尾的地址。普通测试不会读取这些凭据或访问外部模型。

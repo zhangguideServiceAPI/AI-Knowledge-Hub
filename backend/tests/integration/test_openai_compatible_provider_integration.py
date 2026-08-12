@@ -1,6 +1,9 @@
 import asyncio
+from datetime import datetime
 from os import getenv
 
+from fastapi import status
+from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.ai.exceptions import ProviderError
@@ -17,6 +20,11 @@ from app.ai.provider import (
     TokenUsage,
 )
 from app.ai.providers.openai_compatible import OpenAICompatibleChatProvider
+from app.api.dependencies import get_current_user
+from app.core.config import settings
+from app.main import app
+from app.schemas.ai import ChatResponseSchema
+from app.schemas.user import UserResponse
 
 pytestmark = [
     pytest.mark.integration,
@@ -44,6 +52,17 @@ def _integration_target() -> tuple[str, str]:
         )
 
     return provider_key, provider_model
+
+
+def _integration_model_alias() -> str:
+    model_alias = getenv("AI_INTEGRATION_MODEL_ALIAS")
+    if model_alias is None:
+        model_alias = settings.AI_DEFAULT_MODEL_ALIAS
+
+    if model_alias is None or model_alias not in settings.AI_MODELS:
+        pytest.skip("Set AI_INTEGRATION_MODEL_ALIAS to a configured AI model alias.")
+
+    return model_alias
 
 
 def _provider_request(provider_model: str, request_id: str) -> ProviderChatRequest:
@@ -159,3 +178,79 @@ def test_real_openai_compatible_provider_stream() -> None:
     assert len(usage_events) <= 1
     if usage_events:
         _assert_usage_is_valid(usage_events[0].usage)
+
+
+async def _call_real_non_stream_chat_api(
+    *,
+    model_alias: str,
+    provider: OpenAICompatibleChatProvider,
+) -> ChatResponseSchema:
+    transport = ASGITransport(app=app)
+
+    try:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.post(
+                "/ai/chat",
+                headers={"Authorization": "Bearer integration-test-token"},
+                json={
+                    "messages": [{"content": "Reply with the word pong."}],
+                    "model": model_alias,
+                    "temperature": 0.0,
+                    "max_output_tokens": 16,
+                },
+            )
+    finally:
+        await provider.client.close()
+        get_chat_provider.cache_clear()
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    return ChatResponseSchema.model_validate(response.json())
+
+
+def test_real_non_stream_chat_api_vertical_path() -> None:
+    model_alias = _integration_model_alias()
+    model_config = settings.AI_MODELS[model_alias]
+    provider = get_chat_provider(model_config.provider_key)
+    assert isinstance(provider, OpenAICompatibleChatProvider)
+
+    timestamp = datetime(2026, 8, 12, 12, 0)
+    current_user = UserResponse(
+        id=42,
+        email="ai-integration@example.com",
+        nickname=None,
+        avatar_url=None,
+        status="active",
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    try:
+        result = asyncio.run(
+            _call_real_non_stream_chat_api(
+                model_alias=model_alias,
+                provider=provider,
+            )
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert result.request_id
+    assert result.model == model_alias
+    assert result.content.strip()
+    assert result.finish_reason in {
+        FinishReason.STOP,
+        FinishReason.LENGTH,
+        FinishReason.CONTENT_FILTER,
+    }
+    if result.usage is not None:
+        _assert_usage_is_valid(
+            TokenUsage(
+                input_tokens=result.usage.input_tokens,
+                output_tokens=result.usage.output_tokens,
+                total_tokens=result.usage.total_tokens,
+            )
+        )

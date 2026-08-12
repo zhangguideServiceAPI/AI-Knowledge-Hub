@@ -2,8 +2,9 @@
 
 ## 文档状态
 
-Story 4.2 流程设计已确认。ChatProvider 契约、Fake Provider、Factory 与真实 Adapter
-已经可执行；Router、ChatService、AIGateway 和 UsageRepository 是后续实现。
+Story 4.2 流程设计已确认。Story 4.3 至 4.5 的 ChatProvider 契约、Fake Provider、
+Factory、真实 Adapter、AIGateway、ChatService 和非流式 Router 已经可执行；Prompt
+Center、Streaming 与 UsageRepository 是后续实现。
 
 ## 非流式调用链
 
@@ -37,6 +38,10 @@ sequenceDiagram
     S-->>R: Business result or error
     R-->>C: JSON response
 ```
+
+当前 Story 4.5 的非流式实现不调用 Prompt Center，也不写入 UsageRepository；图中的
+两者表示已确认的后续扩展边界。Service 当前记录最小成功日志，Story 4.7 和 4.8
+分别补齐 Prompt 与 Usage 生命周期。
 
 关键点：Router 不看 SDK Response，Provider 不知道 `user_id`，Gateway 不保存 Usage。
 Service 是唯一知道“当前用户业务请求最后处于 success、failed 还是 cancelled”的层。

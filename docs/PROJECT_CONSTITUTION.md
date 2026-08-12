@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.5 AIGateway & Non-stream Chat API
+Current Story: Story 4.6 SSE Streaming
 Current Goal:
-  - Resolve model aliases and route stable requests through AIGateway
-  - Complete the first authenticated non-stream Chat API vertical path
+  - Add cancellable SSE streaming on top of the stable AI Gateway boundary
+  - Preserve explicit delta, usage, done and error terminal semantics
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -183,10 +183,12 @@ Completed:
   - AI Gateway architecture, flow, security and ADR-0025 through ADR-0027
   - ChatProvider DTO, Protocol, typed errors and deterministic Fake Provider
   - AI Provider registry, cached Factory and OpenAI-compatible real Adapter
+  - AIGateway, ChatService and authenticated non-stream POST /ai/chat
+  - Real Provider vertical verification through POST /ai/chat
   - Safe Provider error translation and opt-in real non-stream/stream tests
 
 Not Started:
-  - AIGateway, ChatService and AI Router
+  - SSE streaming AIGateway, ChatService and AI Router
   - Prompt Center and Usage persistence
   - Knowledge / RAG implementation
 ```

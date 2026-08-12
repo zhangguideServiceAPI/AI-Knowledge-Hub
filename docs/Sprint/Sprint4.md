@@ -2,15 +2,16 @@
 
 ## 状态
 
-Sprint 4 正在实施。Story 4.0 至 4.4 已完成：Provider 稳定契约、领域异常、
-Fake Provider、配置注册表、Factory 和 OpenAI-compatible Adapter 已有代码与测试；
-AI Gateway、Router、Prompt Center 与 Usage 持久化尚未实现。
+Sprint 4 正在实施。Story 4.0 至 4.5 已完成：Provider 稳定契约、领域异常、
+Fake Provider、配置注册表、Factory、OpenAI-compatible Adapter、AIGateway、
+ChatService 和非流式 `/ai/chat` 已有代码、离线测试与真实纵向验证；Prompt Center、
+Streaming 与 Usage 持久化仍在后续 Story 中实现。
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.5 AIGateway & Non-stream Chat API
-Current Goal: 组合 Gateway、ChatService 与稳定非流式 Chat API
-Current Step: Step 1 - 确认模型别名、Gateway 策略与 Service 编排边界
+Current Story: Story 4.6 SSE Streaming
+Current Goal: 在非流式主线上增加可取消、可识别终态的 SSE 响应
+Current Step: Step 1 - 确认 Gateway Stream 的输入、输出与首个 Event 前重试边界
 ```
 
 | Story | 状态 | 已形成的证据 |
@@ -20,7 +21,8 @@ Current Step: Step 1 - 确认模型别名、Gateway 策略与 Service 编排边�
 | 4.2 Domain, API & Failure Design | 已完成 | 分层契约、失败矩阵、三份架构文档与 ADR-0025 至 ADR-0027 |
 | 4.3 ChatProvider & Fake Provider | 已完成 | Provider DTO、Protocol、领域异常、Fake 与 22 个测试 |
 | 4.4 Config, Factory & Real Provider | 已完成 | Provider Registry、Factory 缓存、真实 Adapter 与真实联调 |
-| 4.5 AIGateway & Non-stream Chat API | 当前 | 待确认模型别名与纵向调用边界 |
+| 4.5 AIGateway & Non-stream Chat API | 已完成 | AIGateway、ChatService、`POST /ai/chat`、Context Window、安全错误、API 测试与真实纵向验证 |
+| 4.6 SSE Streaming | 当前 | 待实现流式 Gateway、Service、Router、事件终态与取消释放 |
 
 ## Sprint 定位
 
@@ -369,16 +371,16 @@ sequenceDiagram
 - Streaming 期间不持有数据库 Transaction；Usage 在终态使用短事务落库。
 - Provider 未返回最终 Usage 时，Token 字段允许为空或标记为不完整，不能伪造精确数据。
 
-## 计划中的公共 API 契约
+## 公共 API 契约
 
-以下接口将在 Story 4.5 和 4.6 实现，当前代码尚未注册 `/ai/chat` 路由。为保持响应契约清晰，计划使用两个接口，而不是通过一个 `stream` 布尔值让同一路径返回两种 Content-Type：
+非流式 `POST /ai/chat` 已在 Story 4.5 实现。流式接口保留独立路径，在 Story 4.6 实现，避免同一路径根据 `stream` 布尔值返回两种 Content-Type：
 
 ```http
 POST /ai/chat
 POST /ai/chat/stream
 ```
 
-请求候选：
+非流式请求：
 
 ```json
 {
@@ -387,7 +389,7 @@ POST /ai/chat/stream
       "content": "Explain AI Gateway."
     }
   ],
-  "model": "general-chat",
+  "model": "general",
   "temperature": 0.7,
   "max_output_tokens": 1024
 }
@@ -403,12 +405,12 @@ POST /ai/chat/stream
 - `owner_id/user_id` 只能来自当前认证用户，不能由 Body 指定。
 - 输入 Token 估算加输出预算超过模型 Context Window 时直接拒绝；合法生成达到输出上限时以 `finish_reason=length` 正常结束。
 
-非流式响应候选：
+非流式响应：
 
 ```json
 {
   "request_id": "01J...",
-  "model": "general-chat",
+  "model": "general",
   "content": "An AI Gateway is...",
   "finish_reason": "stop",
   "usage": {
@@ -448,11 +450,11 @@ Gateway、Service 和 Router 在流已经开始后，才把异常翻译成公共
 ## 已确认的分层契约
 
 ```text
-Public API Schema（计划）
+Public API Schema（Story 4.5 已实现）
   messages[].content
   model alias / temperature / max_output_tokens
 
-Internal ChatRequest（计划）
+Internal ChatRequest（Story 4.5 已实现）
   messages
   model_alias
   temperature
@@ -856,9 +858,12 @@ ChatService 应负责：
 
 ## Story 4.5: AIGateway & Non-stream Chat API
 
+**状态：已完成（2026-08-12）**
+
 ### 在大功能中的位置
 
-第一次组合认证、ChatService、Prompt 输入、Gateway、Provider 和 Usage 结果，完成非流式纵向主线。
+第一次组合认证、ChatService、Gateway 和 Provider，完成非流式纵向主线。Prompt Center
+与 UsageRepository 已在调用链中预留，但分别留到 Story 4.7 和 Story 4.8。
 
 ### 学习目标
 
@@ -876,6 +881,15 @@ ChatService 应负责：
 - 对 Message、模型别名和生成参数进行有界校验。
 - 将领域异常映射为稳定 HTTP 错误。
 - 使用 Fake Provider 完成 API 测试，使用真实 Provider 完成纵向验证。
+
+### 完成记录
+
+- AIGateway 完成模型别名与默认值解析、生成参数上限、Context Window 预检、总 Deadline、有限重试和安全异常翻译。
+- ChatService 完成请求 ID、受控 USER Message、Gateway 结果转换和无正文成功日志。
+- 注册认证 `POST /ai/chat`，公共响应不泄露 Provider Model、API Key、原始错误或正文日志。
+- API 测试覆盖认证、成功纵向链路、非法字段、领域错误映射和 Context Window 边界。
+- 真实 `/ai/chat` 纵向测试通过；该测试默认跳过，并限制为一次、最多 16 输出 Token。
+- 完整离线测试 `483 passed, 18 skipped`，Ruff、格式检查和 `git diff --check` 通过。
 
 ### 完成标准
 

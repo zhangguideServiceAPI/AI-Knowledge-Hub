@@ -3,8 +3,9 @@
 ## 文档状态
 
 Story 4.2 设计已确认，Story 4.3 已实现最小 ChatProvider 契约与 Fake Provider，
-Story 4.4 已实现配置、Factory 与真实 Adapter。本文同时标注当前代码和目标调用链；
-虚线能力不能理解为已经进入运行时。
+Story 4.4 已实现配置、Factory 与真实 Adapter，Story 4.5 已实现 AIGateway、
+ChatService 和非流式 `/ai/chat`。本文同时标注当前代码和后续目标调用链；虚线能力
+不能理解为已经进入运行时。
 
 ## 架构目标
 
@@ -42,12 +43,12 @@ mindmap
 
 ```mermaid
 flowchart LR
-    C["Client"] -. "Story 4.5/4.6" .-> R["AI Router"]
-    R -.-> S["ChatService"]
+    C["Client"] --> R["AI Router"]
+    R --> S["ChatService"]
     S -.-> P["Prompt Center"]
-    S -.-> G["AIGateway"]
-    G -.-> M["Model Alias Policy"]
-    G -.-> F["Provider Factory"]
+    S --> G["AIGateway"]
+    G --> M["Model Alias Policy"]
+    G --> F["Provider Factory"]
 
     F --> A["Real Provider Adapter"]
     A --> L["External LLM"]
@@ -60,7 +61,8 @@ flowchart LR
     U -.-> D[("MySQL")]
 ```
 
-实线表示 Story 4.3/4.4 已有代码和测试，虚线表示后续 Story 的已确认设计。
+实线表示 Story 4.3 至 4.5 已有代码和测试；Prompt Center、UsageRepository 和
+Streaming 相关能力仍以虚线表示，分别在后续 Story 中实现。
 
 ## 职责边界
 
