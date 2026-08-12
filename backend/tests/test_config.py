@@ -396,6 +396,8 @@ def test_settings_uses_default_ai_retry_policy() -> None:
     assert settings.AI_MAX_RETRY_ATTEMPTS == 1
     assert settings.AI_RETRY_BACKOFF_SECONDS == 0.2
     assert settings.AI_TOTAL_DEADLINE_SECONDS == 65.0
+    assert settings.AI_STREAM_IDLE_TIMEOUT_SECONDS == 30.0
+    assert settings.AI_STREAM_TOTAL_DEADLINE_SECONDS == 300.0
 
 
 @pytest.mark.parametrize(
@@ -407,6 +409,9 @@ def test_settings_uses_default_ai_retry_policy() -> None:
         ("AI_RETRY_BACKOFF_SECONDS", 5.0),
         ("AI_TOTAL_DEADLINE_SECONDS", 0.001),
         ("AI_TOTAL_DEADLINE_SECONDS", 300.0),
+        ("AI_STREAM_IDLE_TIMEOUT_SECONDS", 0.001),
+        ("AI_STREAM_IDLE_TIMEOUT_SECONDS", 300.0),
+        ("AI_STREAM_TOTAL_DEADLINE_SECONDS", 1800.0),
     ],
 )
 def test_settings_accepts_ai_retry_policy_boundaries(
@@ -431,6 +436,10 @@ def test_settings_accepts_ai_retry_policy_boundaries(
         ("AI_RETRY_BACKOFF_SECONDS", 5.1),
         ("AI_TOTAL_DEADLINE_SECONDS", 0.0),
         ("AI_TOTAL_DEADLINE_SECONDS", 301.0),
+        ("AI_STREAM_IDLE_TIMEOUT_SECONDS", 0.0),
+        ("AI_STREAM_IDLE_TIMEOUT_SECONDS", 300.1),
+        ("AI_STREAM_TOTAL_DEADLINE_SECONDS", 0.0),
+        ("AI_STREAM_TOTAL_DEADLINE_SECONDS", 1800.1),
     ],
 )
 def test_settings_rejects_invalid_ai_retry_policy(
@@ -453,6 +462,8 @@ def test_settings_parses_ai_retry_policy_from_environment(
     monkeypatch.setenv("AI_MAX_RETRY_ATTEMPTS", "2")
     monkeypatch.setenv("AI_RETRY_BACKOFF_SECONDS", "0.5")
     monkeypatch.setenv("AI_TOTAL_DEADLINE_SECONDS", "120")
+    monkeypatch.setenv("AI_STREAM_IDLE_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("AI_STREAM_TOTAL_DEADLINE_SECONDS", "600")
 
     settings = Settings(
         _env_file=None,
@@ -462,6 +473,36 @@ def test_settings_parses_ai_retry_policy_from_environment(
     assert settings.AI_MAX_RETRY_ATTEMPTS == 2
     assert settings.AI_RETRY_BACKOFF_SECONDS == 0.5
     assert settings.AI_TOTAL_DEADLINE_SECONDS == 120.0
+    assert settings.AI_STREAM_IDLE_TIMEOUT_SECONDS == 45.0
+    assert settings.AI_STREAM_TOTAL_DEADLINE_SECONDS == 600.0
+
+
+def test_settings_accepts_equal_ai_stream_idle_and_total_timeouts() -> None:
+    settings = Settings(
+        _env_file=None,
+        REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+        AI_STREAM_IDLE_TIMEOUT_SECONDS=0.001,
+        AI_STREAM_TOTAL_DEADLINE_SECONDS=0.001,
+    )
+
+    assert settings.AI_STREAM_IDLE_TIMEOUT_SECONDS == 0.001
+    assert settings.AI_STREAM_TOTAL_DEADLINE_SECONDS == 0.001
+
+
+def test_settings_rejects_stream_total_timeout_below_idle_timeout() -> None:
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "AI_STREAM_TOTAL_DEADLINE_SECONDS must be greater than or equal "
+            "to AI_STREAM_IDLE_TIMEOUT_SECONDS"
+        ),
+    ):
+        Settings(
+            _env_file=None,
+            REDIS_PASSWORD=VALID_REDIS_PASSWORD,
+            AI_STREAM_IDLE_TIMEOUT_SECONDS=30.0,
+            AI_STREAM_TOTAL_DEADLINE_SECONDS=29.9,
+        )
 
 
 def test_settings_loads_multiple_ai_provider_configs() -> None:

@@ -17,6 +17,8 @@ def test_get_ai_gateway_wires_settings_without_creating_provider() -> None:
         max_retry_attempts=settings.AI_MAX_RETRY_ATTEMPTS,
         retry_backoff_seconds=settings.AI_RETRY_BACKOFF_SECONDS,
         total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
+        stream_idle_timeout_seconds=settings.AI_STREAM_IDLE_TIMEOUT_SECONDS,
+        stream_total_deadline_seconds=(settings.AI_STREAM_TOTAL_DEADLINE_SECONDS),
     )
     provider_factory.assert_not_called()
     assert gateway is gateway_type.return_value

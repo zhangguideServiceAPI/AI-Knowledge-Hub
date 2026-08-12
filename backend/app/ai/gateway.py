@@ -1,4 +1,5 @@
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import aclosing
 from dataclasses import dataclass
 import asyncio
 
@@ -11,10 +12,13 @@ from app.ai.exceptions import (
     AIProviderUnavailableError,
     ProviderError,
     ProviderRateLimitError,
+    ProviderStreamError,
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
 from app.ai.provider import (
+    ChatDone,
+    ChatEvent,
     ChatMessage,
     ChatProvider,
     ChatResult,
@@ -83,6 +87,13 @@ class GatewayChatResult:
     usage: TokenUsage | None
 
 
+@dataclass(frozen=True)
+class _PreparedProviderCall:
+    model_alias: str
+    provider: ChatProvider
+    provider_request: ProviderChatRequest
+
+
 class AIGateway:
     def __init__(
         self,
@@ -93,6 +104,8 @@ class AIGateway:
         max_retry_attempts: int,
         retry_backoff_seconds: float,
         total_deadline_seconds: float,
+        stream_idle_timeout_seconds: float,
+        stream_total_deadline_seconds: float,
         input_token_estimator: Callable[
             [str, tuple[ChatMessage, ...]],
             int,
@@ -104,12 +117,162 @@ class AIGateway:
         self._max_retry_attempts = max_retry_attempts
         self._retry_backoff_seconds = retry_backoff_seconds
         self._total_deadline_seconds = total_deadline_seconds
+        self._stream_idle_timeout_seconds = stream_idle_timeout_seconds
+        self._stream_total_deadline_seconds = stream_total_deadline_seconds
         self._input_token_estimator = input_token_estimator
 
     async def generate(
         self,
         request: ChatRequest,
     ) -> GatewayChatResult:
+
+        prepared = self._prepare_provider_call(request)
+
+        try:
+            # 这是整个“首次调用 + 等待 + 重试”的总时间上限。
+            async with asyncio.timeout(
+                self._total_deadline_seconds
+            ):  # 它会为一段异步代码设置截止时间。超时后内部任务会被取消，离开上下文后转换为 TimeoutError。
+                provider_result = await self._generate_with_retry(
+                    prepared.provider,
+                    prepared.provider_request,
+                )
+        except TimeoutError as error:
+            raise AIProviderTimeoutError("AI provider request timed out.") from error
+        except ProviderError as error:
+            raise _translate_provider_error(error) from error
+
+        return GatewayChatResult(
+            request_id=provider_result.request_id,
+            model_alias=prepared.model_alias,
+            content=provider_result.content,
+            finish_reason=provider_result.finish_reason,
+            usage=provider_result.usage,
+        )
+
+    async def stream(
+        self,
+        request: ChatRequest,
+    ) -> AsyncIterator[
+        ChatEvent
+    ]:  # 这是一个需要异步等待、每次返回一个 ChatEvent 的迭代器
+        prepared = self._prepare_provider_call(request)
+        retry_count = 0
+        has_emitted_event = False
+
+        loop = asyncio.get_running_loop()
+        total_deadline = loop.time() + self._stream_total_deadline_seconds
+
+        try:
+            # 外层循环：控制一次 Provider 调用以及可能发生的重试。
+            while True:
+                try:
+                    # aclosing(...) 类似资源管理器：
+                    # 进入 async with
+                    #     使用 Provider Stream
+                    # 离开 async with
+                    #     自动 await provider_stream.aclose()
+                    # 因此正常结束、Provider 报错、客户端取消以及 Gateway 被主动 aclose()，都能进入关闭流程。
+                    # aclosing 保证成功、异常、取消或主动关闭时，
+                    # Provider Stream 都会执行 aclose()。
+                    async with aclosing(
+                        prepared.provider.stream(prepared.provider_request)
+                    ) as provider_stream:
+                        # 内层循环：从本次 Provider 流逐个获取 Event。
+                        while True:
+                            idle_deadline = (
+                                loop.time() + self._stream_idle_timeout_seconds
+                            )
+
+                            # 谁先到期，就使用谁作为本次等待的截止时间。
+                            wait_deadline = min(
+                                idle_deadline,
+                                total_deadline,
+                            )
+                            # 区分是总超时还是间隔超时
+                            total_deadline_expires_first = (
+                                total_deadline <= idle_deadline
+                            )
+
+                            try:
+                                async with asyncio.timeout_at(wait_deadline):
+                                    event = await anext(
+                                        provider_stream
+                                    )  # anext(provider_stream) 是异步版本的 next()： 如果 Provider 流结束，anext() 会抛出 StopAsyncIteration
+
+                            except TimeoutError as error:
+                                if total_deadline_expires_first:
+                                    raise AIProviderTimeoutError(
+                                        "AI stream exceeded its total deadline."
+                                    ) from error
+
+                                # 转换成 ProviderTimeoutError，交给下面的
+                                # Provider Retry 规则统一判断。
+                                raise ProviderTimeoutError(
+                                    "AI provider stream was idle for too long."
+                                ) from error
+
+                            # 必须在 yield 前修改状态，因为 yield 会暂停当前函数。
+                            has_emitted_event = True
+                            yield event  # async def 中只要出现 yield，它就是异步生成器。执行： stream = gateway.stream(request)
+
+                            # done 是成功终态，不再向 Provider 请求下一个 Event。
+                            if isinstance(event, ChatDone):
+                                return
+
+                except StopAsyncIteration as error:
+                    raise ProviderStreamError(
+                        "Provider stream ended without ChatDone."
+                    ) from error
+                except ProviderError as error:
+                    if (
+                        has_emitted_event
+                        or not _is_retryable_provider_error(error)
+                        or retry_count >= self._max_retry_attempts
+                    ):
+                        raise
+
+                    backoff_seconds = self._retry_backoff_seconds * (2**retry_count)
+                    retry_count += 1
+
+                if backoff_seconds > 0:
+                    async with asyncio.timeout_at(total_deadline):
+                        await asyncio.sleep(backoff_seconds)
+
+        except TimeoutError as error:
+            raise AIProviderTimeoutError("AI provider request timed out.") from error
+        except ProviderError as error:
+            raise _translate_provider_error(error) from error
+
+    async def _generate_with_retry(
+        self,
+        provider: ChatProvider,
+        request: ProviderChatRequest,
+    ) -> ChatResult:
+        retry_count = 0
+
+        while True:
+            try:
+                return await provider.generate(request)
+            except ProviderError as error:
+                if (
+                    not _is_retryable_provider_error(error)
+                    or retry_count >= self._max_retry_attempts
+                ):
+                    raise
+                # 指数退避更适合 Rate Limit 或 Provider 暂时故障。大量请求同时失败时，如果大家都固定等待 0.2 秒，就会在同一时间再次冲击 Provider。指数退避会逐渐拉开请求时间。
+                # **：幂运算，2**3 等于 8
+                backoff_seconds = self._retry_backoff_seconds * (2**retry_count)
+
+                if backoff_seconds > 0:
+                    await asyncio.sleep(backoff_seconds)
+
+                retry_count += 1
+
+    def _prepare_provider_call(
+        self,
+        request: ChatRequest,
+    ) -> _PreparedProviderCall:
         model_alias = request.model_alias
         if model_alias is None:
             model_alias = self._default_model_alias
@@ -159,49 +322,8 @@ class AIGateway:
             max_output_tokens=max_output_tokens,
         )
 
-        try:
-            # 这是整个“首次调用 + 等待 + 重试”的总时间上限。
-            async with asyncio.timeout(
-                self._total_deadline_seconds
-            ):  # 它会为一段异步代码设置截止时间。超时后内部任务会被取消，离开上下文后转换为 TimeoutError。
-                provider_result = await self._generate_with_retry(
-                    provider,
-                    provider_request,
-                )
-        except TimeoutError as error:
-            raise AIProviderTimeoutError("AI provider request timed out.") from error
-        except ProviderError as error:
-            raise _translate_provider_error(error) from error
-
-        return GatewayChatResult(
-            request_id=provider_result.request_id,
+        return _PreparedProviderCall(
             model_alias=model_alias,
-            content=provider_result.content,
-            finish_reason=provider_result.finish_reason,
-            usage=provider_result.usage,
+            provider=provider,
+            provider_request=provider_request,
         )
-
-    async def _generate_with_retry(
-        self,
-        provider: ChatProvider,
-        request: ProviderChatRequest,
-    ) -> ChatResult:
-        retry_count = 0
-
-        while True:
-            try:
-                return await provider.generate(request)
-            except ProviderError as error:
-                if (
-                    not _is_retryable_provider_error(error)
-                    or retry_count >= self._max_retry_attempts
-                ):
-                    raise
-                # 指数退避更适合 Rate Limit 或 Provider 暂时故障。大量请求同时失败时，如果大家都固定等待 0.2 秒，就会在同一时间再次冲击 Provider。指数退避会逐渐拉开请求时间。
-                # **：幂运算，2**3 等于 8
-                backoff_seconds = self._retry_backoff_seconds * (2**retry_count)
-
-                if backoff_seconds > 0:
-                    await asyncio.sleep(backoff_seconds)
-
-                retry_count += 1

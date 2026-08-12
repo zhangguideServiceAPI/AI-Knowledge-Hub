@@ -1,17 +1,47 @@
 from time import perf_counter
 from uuid import uuid4
+from collections.abc import AsyncIterator
+from contextlib import aclosing
 
 from app.ai.gateway import (
     AIGateway,
     ChatRequest as GatewayChatRequest,
 )
-from app.ai.provider import ChatMessage, ChatRole
 from app.core.logging import logger
 from app.schemas.ai import (
     ChatRequestSchema,
     ChatResponseSchema,
     ChatUsageResponse,
 )
+from app.ai.provider import (
+    ChatEvent,
+    ChatMessage,
+    ChatRole,
+)
+
+
+def _build_gateway_request(
+    request: ChatRequestSchema,
+    *,
+    request_id: str,
+) -> GatewayChatRequest:
+
+    # API Message 只包含正文；Service 负责创建受控 USER role。
+    messages = tuple(
+        ChatMessage(
+            role=ChatRole.USER,
+            content=message.content,
+        )
+        for message in request.messages
+    )
+
+    return GatewayChatRequest(
+        request_id=request_id,
+        messages=messages,
+        model_alias=request.model,
+        temperature=request.temperature,
+        max_output_tokens=request.max_output_tokens,
+    )
 
 
 class ChatService:
@@ -26,22 +56,7 @@ class ChatService:
     ) -> ChatResponseSchema:
         request_id = str(uuid4())
 
-        # API Message 只包含正文；Service 负责创建受控 USER role。
-        messages = tuple(
-            ChatMessage(
-                role=ChatRole.USER,
-                content=message.content,
-            )
-            for message in request.messages
-        )
-
-        gateway_request = GatewayChatRequest(
-            request_id=request_id,
-            messages=messages,
-            model_alias=request.model,
-            temperature=request.temperature,
-            max_output_tokens=request.max_output_tokens,
-        )
+        gateway_request = _build_gateway_request(request, request_id=request_id)
 
         started_at = perf_counter()  # 单调递增的高精度计时器，适合计算耗时
         result = await self._gateway.generate(gateway_request)
@@ -74,3 +89,23 @@ class ChatService:
         )
 
         return response
+
+    async def stream(
+        self,
+        request: ChatRequestSchema,
+        *,
+        user_id: int,
+    ) -> AsyncIterator[ChatEvent]:
+        request_id = str(uuid4())
+        gateway_request = _build_gateway_request(
+            request,
+            request_id=request_id,
+        )
+
+        # user_id 会在 Story 4.8 用于记录 Streaming Usage 终态。
+        # 当前 Story 先建立认证业务边界，不在这里提前写数据库。
+        _ = user_id
+
+        async with aclosing(self._gateway.stream(gateway_request)) as gateway_stream:
+            async for event in gateway_stream:
+                yield event

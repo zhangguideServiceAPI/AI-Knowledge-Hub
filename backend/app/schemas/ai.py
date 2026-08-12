@@ -115,3 +115,45 @@ class ChatResponseSchema(BaseModel):
     content: str
     finish_reason: FinishReason
     usage: ChatUsageResponse | None = None
+
+
+class ChatStreamDeltaData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    content: str
+
+
+class ChatStreamUsageData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    input_tokens: NonNegativeInt | None
+    output_tokens: NonNegativeInt | None
+    total_tokens: NonNegativeInt | None
+
+
+class ChatStreamDoneData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    finish_reason: FinishReason
+
+
+class ChatStreamErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: AIErrorCode
+    detail: str = Field(
+        min_length=1,
+        max_length=256,
+    )
