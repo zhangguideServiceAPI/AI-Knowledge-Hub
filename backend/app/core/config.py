@@ -167,6 +167,20 @@ class Settings(BaseSettings):
         le=300.0,
     )
 
+    # 流式：
+    # 等待下一个 Event 的上限
+    AI_STREAM_IDLE_TIMEOUT_SECONDS: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=300.0,
+    )
+    # 整条流的硬上限
+    AI_STREAM_TOTAL_DEADLINE_SECONDS: float = Field(
+        default=300.0,
+        gt=0.0,
+        le=1800.0,
+    )
+
     @model_validator(mode="after")
     def validate_session_expiration(self) -> Self:
         if (
@@ -231,6 +245,16 @@ class Settings(BaseSettings):
                     f"AI_MODELS[{model_alias!r}].provider_key "
                     "must exist in AI_PROVIDERS."
                 )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_ai_stream_timeouts(self) -> Self:
+        if self.AI_STREAM_TOTAL_DEADLINE_SECONDS < self.AI_STREAM_IDLE_TIMEOUT_SECONDS:
+            raise ValueError(
+                "AI_STREAM_TOTAL_DEADLINE_SECONDS must be greater than "
+                "or equal to AI_STREAM_IDLE_TIMEOUT_SECONDS."
+            )
 
         return self
 

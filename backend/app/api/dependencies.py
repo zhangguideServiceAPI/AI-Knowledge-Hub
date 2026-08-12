@@ -75,6 +75,8 @@ def get_ai_gateway() -> AIGateway:
         max_retry_attempts=settings.AI_MAX_RETRY_ATTEMPTS,
         retry_backoff_seconds=settings.AI_RETRY_BACKOFF_SECONDS,
         total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
+        stream_idle_timeout_seconds=(settings.AI_STREAM_IDLE_TIMEOUT_SECONDS),
+        stream_total_deadline_seconds=(settings.AI_STREAM_TOTAL_DEADLINE_SECONDS),
     )
 
 

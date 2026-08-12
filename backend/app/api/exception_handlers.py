@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
+from dataclasses import dataclass
 
 from app.ai.exceptions import (
     AIError,
@@ -255,6 +256,13 @@ async def file_content_unavailable_handler(
     )
 
 
+@dataclass(frozen=True)
+class PublicAIError:
+    status_code: int
+    code: AIErrorCode
+    detail: str
+
+
 # key 是异常类，value 依次是 HTTP 状态码、公共错误码和安全文案。
 _AI_ERROR_RESPONSES: dict[
     type[AIError],
@@ -288,10 +296,7 @@ _AI_ERROR_RESPONSES: dict[
 }
 
 
-async def ai_error_handler(
-    request: Request,
-    error: AIError,
-) -> JSONResponse:
+def map_ai_error(error: AIError) -> PublicAIError:
     status_code, code, detail = _AI_ERROR_RESPONSES.get(
         type(error),
         (
@@ -301,21 +306,34 @@ async def ai_error_handler(
         ),
     )
 
+    return PublicAIError(
+        status_code=status_code,
+        code=code,
+        detail=detail,
+    )
+
+
+async def ai_error_handler(
+    request: Request,
+    error: AIError,
+) -> JSONResponse:
+
+    public_error = map_ai_error(error)
     # 只记录固定字段，禁止记录 str(error) 或 Provider 原始异常。
     logger.error(
         "ai.request.failed method=%s path=%s code=%s error_type=%s",
         request.method,
         request.url.path,
-        code.value,
+        public_error.code.value,
         type(error).__name__,
     )
 
     response = AIErrorResponse(
-        code=code,
-        detail=detail,
+        code=public_error.code,
+        detail=public_error.detail,
     )
     return JSONResponse(
-        status_code=status_code,
+        status_code=public_error.status_code,
         content=response.model_dump(mode="json"),
     )
 

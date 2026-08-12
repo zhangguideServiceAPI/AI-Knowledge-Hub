@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.6 SSE Streaming
+Current Story: Story 4.7 Prompt Center
 Current Goal:
-  - Add cancellable SSE streaming on top of the stable AI Gateway boundary
-  - Preserve explicit delta, usage, done and error terminal semantics
+  - Add versioned and auditable system prompts at the ChatService boundary
+  - Preserve strict template variables and controlled message roles
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -184,11 +184,13 @@ Completed:
   - ChatProvider DTO, Protocol, typed errors and deterministic Fake Provider
   - AI Provider registry, cached Factory and OpenAI-compatible real Adapter
   - AIGateway, ChatService and authenticated non-stream POST /ai/chat
+  - Cancellable AIGateway and ChatService streaming boundaries
+  - Authenticated POST /ai/chat/stream with delta, usage, done and error semantics
+  - First-event prefetch, ASGI disconnect race and end-to-end stream cleanup
   - Real Provider vertical verification through POST /ai/chat
   - Safe Provider error translation and opt-in real non-stream/stream tests
 
 Not Started:
-  - SSE streaming AIGateway, ChatService and AI Router
   - Prompt Center and Usage persistence
   - Knowledge / RAG implementation
 ```

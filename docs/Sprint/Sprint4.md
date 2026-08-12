@@ -2,16 +2,16 @@
 
 ## 状态
 
-Sprint 4 正在实施。Story 4.0 至 4.5 已完成：Provider 稳定契约、领域异常、
+Sprint 4 正在实施。Story 4.0 至 4.6 已完成：Provider 稳定契约、领域异常、
 Fake Provider、配置注册表、Factory、OpenAI-compatible Adapter、AIGateway、
-ChatService 和非流式 `/ai/chat` 已有代码、离线测试与真实纵向验证；Prompt Center、
-Streaming 与 Usage 持久化仍在后续 Story 中实现。
+ChatService、非流式 `/ai/chat` 和流式 `/ai/chat/stream` 已有代码与纵向验证；Prompt
+Center 与 Usage 持久化仍在后续 Story 中实现。
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.6 SSE Streaming
-Current Goal: 在非流式主线上增加可取消、可识别终态的 SSE 响应
-Current Step: Step 1 - 确认 Gateway Stream 的输入、输出与首个 Event 前重试边界
+Current Story: Story 4.7 Prompt Center
+Current Goal: 使用可版本化、可审计的模板生成受控 System Prompt
+Current Step: Step 1 - 确认 Prompt Template、变量与 ChatService 的职责边界
 ```
 
 | Story | 状态 | 已形成的证据 |
@@ -22,7 +22,7 @@ Current Step: Step 1 - 确认 Gateway Stream 的输入、输出与首个 Event �
 | 4.3 ChatProvider & Fake Provider | 已完成 | Provider DTO、Protocol、领域异常、Fake 与 22 个测试 |
 | 4.4 Config, Factory & Real Provider | 已完成 | Provider Registry、Factory 缓存、真实 Adapter 与真实联调 |
 | 4.5 AIGateway & Non-stream Chat API | 已完成 | AIGateway、ChatService、`POST /ai/chat`、Context Window、安全错误、API 测试与真实纵向验证 |
-| 4.6 SSE Streaming | 当前 | 待实现流式 Gateway、Service、Router、事件终态与取消释放 |
+| 4.6 SSE Streaming | 已完成 | Gateway/Service Stream、认证 SSE Router、首 Event 预取、ASGI 断连竞速、错误终态、取消释放与纵向测试 |
 
 ## Sprint 定位
 
@@ -930,6 +930,21 @@ ChatService 应负责：
 - Streaming 期间不持有长数据库 Transaction。
 - Story Review、文档同步和 Commit 完成。
 
+### 完成记录
+
+- `AIGateway.stream()` 已实现首 Event 前有限重试、流开始后禁止重试、空闲超时、总
+  Deadline、稳定 Event 与 Provider Stream 关闭。
+- `ChatService.stream()` 沿用非流式请求转换，并使用 `aclosing` 管理 Gateway Stream。
+- `POST /ai/chat/stream` 在 Router 预取首 Event：预取失败仍返回 JSON HTTP 错误；
+  预取成功后返回 `text/event-stream`，后续失败转换为安全 `error` Event。
+- 公共 SSE 顺序为 `delta -> usage -> done`；`done` 与 `error` 互斥，不透传 Provider
+  原始 Chunk、异常或配置。
+- Router 在首 Event 预取期间竞速等待 `anext()` 与 ASGI `http.disconnect`；首 Event
+  后由 `StreamingResponse` 监听断连。两阶段取消都会沿 Service、Gateway、Provider
+  传播并关闭 SDK Stream。
+- Story 4.6 专项测试 `250 passed`；全量测试 `547 passed, 18 skipped`，Ruff 与
+  `git diff --check` 通过。
+
 ## Story 4.7: Prompt Center
 
 ### 在大功能中的位置
@@ -1103,17 +1118,17 @@ Sprint 4 至少覆盖以下核心问题：
 
 ### 功能
 
-- [ ] 认证用户可以完成非流式 Chat。
-- [ ] 认证用户可以接收标准 SSE 流并识别明确终态。
-- [ ] Provider 可以通过配置切换，ChatService 不修改。
+- [x] 认证用户可以完成非流式 Chat。
+- [x] 认证用户可以接收标准 SSE 流并识别明确终态。
+- [x] Provider 可以通过配置切换，ChatService 不修改。
 - [ ] Prompt 可以通过 Key 和 Version 严格渲染。
 - [ ] 成功、失败和取消请求都有可查询 Usage 记录。
 
 ### 工程
 
 - [ ] Router、Service、Gateway、Provider 和 Repository 职责清晰。
-- [ ] Provider SDK 类型和原始事件不泄露到业务与客户端。
-- [ ] Timeout、Retry、错误、取消和资源释放行为完成。
+- [x] Provider SDK 类型和原始事件不泄露到业务与客户端。
+- [x] Timeout、Retry、错误、取消和资源释放行为完成。
 - [ ] Secret、Message、Prompt 和回答正文不进入日志或 Usage 表。
 - [ ] Migration Upgrade/Downgrade 通过。
 - [ ] Unit、Contract、API、Streaming、真实 Provider 和纵向测试通过。

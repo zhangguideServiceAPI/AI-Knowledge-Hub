@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -12,15 +13,20 @@ from app.ai.exceptions import (
     AIProviderUnavailableError,
     ProviderError,
     ProviderRateLimitError,
+    ProviderStreamError,
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
 from app.ai.gateway import AIGateway, ChatRequest, GatewayChatResult
 from app.ai.provider import (
+    ChatDelta,
+    ChatDone,
+    ChatEvent,
     ChatMessage,
     ChatProvider,
     ChatResult,
     ChatRole,
+    ChatUsageEvent,
     FinishReason,
     ProviderChatRequest,
     TokenUsage,
@@ -53,6 +59,8 @@ def _gateway(
     max_retry_attempts: int = 0,
     retry_backoff_seconds: float = 0.0,
     total_deadline_seconds: float = 1.0,
+    stream_idle_timeout_seconds: float = 1.0,
+    stream_total_deadline_seconds: float = 1.0,
 ) -> AIGateway:
     return AIGateway(
         model_configs={"general": _model_config()},
@@ -61,6 +69,8 @@ def _gateway(
         max_retry_attempts=max_retry_attempts,
         retry_backoff_seconds=retry_backoff_seconds,
         total_deadline_seconds=total_deadline_seconds,
+        stream_idle_timeout_seconds=stream_idle_timeout_seconds,
+        stream_total_deadline_seconds=stream_total_deadline_seconds,
     )
 
 
@@ -161,6 +171,8 @@ def test_generate_rejects_unconfigured_model_without_calling_factory(
         max_retry_attempts=0,
         retry_backoff_seconds=0.0,
         total_deadline_seconds=1.0,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=1.0,
     )
 
     with pytest.raises(AIInvalidModelError):
@@ -272,6 +284,8 @@ def test_generate_accepts_context_window_exact_boundary() -> None:
         max_retry_attempts=0,
         retry_backoff_seconds=0.0,
         total_deadline_seconds=1.0,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=1.0,
         input_token_estimator=estimator,
     )
 
@@ -303,6 +317,8 @@ def test_generate_rejects_context_window_overflow_before_creating_provider() -> 
         max_retry_attempts=0,
         retry_backoff_seconds=0.0,
         total_deadline_seconds=1.0,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=1.0,
         input_token_estimator=estimator,
     )
 
@@ -334,6 +350,8 @@ def test_generate_uses_default_output_budget_for_context_window_check() -> None:
         max_retry_attempts=0,
         retry_backoff_seconds=0.0,
         total_deadline_seconds=1.0,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=1.0,
         input_token_estimator=estimator,
     )
 
@@ -460,3 +478,378 @@ def test_generate_translates_total_deadline_to_timeout_error() -> None:
         asyncio.run(gateway.generate(_chat_request()))
 
     assert provider.generate.await_count == 1
+
+
+async def _collect_stream(stream: AsyncIterator[ChatEvent]) -> list[ChatEvent]:
+    return [event async for event in stream]
+
+
+async def _stream_attempt(
+    events: tuple[ChatEvent, ...],
+    *,
+    error: ProviderError | None = None,
+    closed_attempts: list[bool] | None = None,
+) -> AsyncIterator[ChatEvent]:
+    try:
+        for event in events:
+            yield event
+
+        if error is not None:
+            raise error
+    finally:
+        if closed_attempts is not None:
+            closed_attempts.append(True)
+
+
+async def _blocking_stream(
+    closed_attempts: list[bool],
+) -> AsyncIterator[ChatEvent]:
+    try:
+        await asyncio.Event().wait()
+        yield ChatDone(
+            request_id="request-1",
+            finish_reason=FinishReason.STOP,
+        )
+    finally:
+        closed_attempts.append(True)
+
+
+async def _event_then_block(
+    event: ChatEvent,
+    closed_attempts: list[bool],
+) -> AsyncIterator[ChatEvent]:
+    try:
+        yield event
+        await asyncio.Event().wait()
+        yield ChatDone(
+            request_id="request-1",
+            finish_reason=FinishReason.STOP,
+        )
+    finally:
+        closed_attempts.append(True)
+
+
+def test_stream_yields_delta_usage_and_done_and_closes_provider() -> None:
+    usage = TokenUsage(
+        input_tokens=6,
+        output_tokens=9,
+        total_tokens=15,
+    )
+    events: tuple[ChatEvent, ...] = (
+        ChatDelta(request_id="request-1", content="First"),
+        ChatDelta(request_id="request-1", content=" second"),
+        ChatUsageEvent(request_id="request-1", usage=usage),
+        ChatDone(
+            request_id="request-1",
+            finish_reason=FinishReason.STOP,
+        ),
+    )
+    provider = FakeChatProvider(content="", stream_events=events)
+    provider_factory = Mock(return_value=provider)
+    gateway = _gateway(provider_factory)
+
+    result = asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    assert result == list(events)
+    assert provider.stream_closed is True
+    provider_factory.assert_called_once_with("primary")
+    assert provider.last_request == ProviderChatRequest(
+        request_id="request-1",
+        messages=_chat_request().messages,
+        provider_model="provider-model",
+        temperature=0.3,
+        max_output_tokens=512,
+    )
+
+
+def test_stream_retries_retryable_error_before_first_event() -> None:
+    closed_attempts: list[bool] = []
+    done = ChatDone(
+        request_id="request-1",
+        finish_reason=FinishReason.STOP,
+    )
+    provider = Mock(spec=ChatProvider)
+    provider.stream.side_effect = [
+        _stream_attempt(
+            (),
+            error=ProviderUnavailableError("temporary outage"),
+            closed_attempts=closed_attempts,
+        ),
+        _stream_attempt((done,), closed_attempts=closed_attempts),
+    ]
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=1,
+    )
+
+    result = asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    assert result == [done]
+    assert provider.stream.call_count == 2
+    assert closed_attempts == [True, True]
+
+
+@pytest.mark.parametrize(
+    "first_event",
+    [
+        ChatDelta(request_id="request-1", content="visible"),
+        ChatUsageEvent(
+            request_id="request-1",
+            usage=TokenUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+        ),
+    ],
+)
+def test_stream_does_not_retry_after_any_event(
+    first_event: ChatEvent,
+) -> None:
+    closed_attempts: list[bool] = []
+    provider = Mock(spec=ChatProvider)
+    provider.stream.return_value = _stream_attempt(
+        (first_event,),
+        error=ProviderTimeoutError("stream interrupted"),
+        closed_attempts=closed_attempts,
+    )
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=3,
+    )
+
+    async def consume() -> None:
+        stream = gateway.stream(_chat_request())
+        assert await anext(stream) == first_event
+
+        with pytest.raises(AIProviderTimeoutError):
+            await anext(stream)
+
+    asyncio.run(consume())
+
+    provider.stream.assert_called_once()
+    assert closed_attempts == [True]
+
+
+def test_stream_uses_exponential_backoff_before_first_event() -> None:
+    provider = Mock(spec=ChatProvider)
+    done = ChatDone(
+        request_id="request-1",
+        finish_reason=FinishReason.STOP,
+    )
+    provider.stream.side_effect = [
+        _stream_attempt((), error=ProviderTimeoutError("first timeout")),
+        _stream_attempt((), error=ProviderTimeoutError("second timeout")),
+        _stream_attempt((done,)),
+    ]
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=2,
+        retry_backoff_seconds=0.2,
+    )
+
+    with patch("app.ai.gateway.asyncio.sleep", new_callable=AsyncMock) as sleep:
+        result = asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    assert result == [done]
+    sleep.assert_has_awaits([call(0.2), call(0.4)])
+    assert provider.stream.call_count == 3
+
+
+def test_stream_retries_idle_timeout_before_first_event() -> None:
+    closed_attempts: list[bool] = []
+    done = ChatDone(
+        request_id="request-1",
+        finish_reason=FinishReason.STOP,
+    )
+    provider = Mock(spec=ChatProvider)
+    provider.stream.side_effect = [
+        _blocking_stream(closed_attempts),
+        _stream_attempt((done,), closed_attempts=closed_attempts),
+    ]
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=1,
+        stream_idle_timeout_seconds=0.01,
+        stream_total_deadline_seconds=1.0,
+    )
+
+    result = asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    assert result == [done]
+    assert provider.stream.call_count == 2
+    assert closed_attempts == [True, True]
+
+
+def test_stream_does_not_retry_idle_timeout_after_first_event() -> None:
+    closed_attempts: list[bool] = []
+    delta = ChatDelta(request_id="request-1", content="visible")
+    provider = Mock(spec=ChatProvider)
+    provider.stream.return_value = _event_then_block(delta, closed_attempts)
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=2,
+        stream_idle_timeout_seconds=0.01,
+        stream_total_deadline_seconds=1.0,
+    )
+
+    async def consume() -> None:
+        stream = gateway.stream(_chat_request())
+        assert await anext(stream) == delta
+
+        with pytest.raises(AIProviderTimeoutError):
+            await anext(stream)
+
+    asyncio.run(consume())
+
+    provider.stream.assert_called_once()
+    assert closed_attempts == [True]
+
+
+def test_stream_total_deadline_does_not_retry() -> None:
+    closed_attempts: list[bool] = []
+    provider = Mock(spec=ChatProvider)
+    provider.stream.return_value = _blocking_stream(closed_attempts)
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=2,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=0.01,
+    )
+
+    with pytest.raises(
+        AIProviderTimeoutError,
+        match="AI stream exceeded its total deadline",
+    ):
+        asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    provider.stream.assert_called_once()
+    assert closed_attempts == [True]
+
+
+def test_stream_propagates_cancellation_and_closes_provider() -> None:
+    closed_attempts: list[bool] = []
+    provider = Mock(spec=ChatProvider)
+    provider.stream.return_value = _blocking_stream(closed_attempts)
+    gateway = _gateway(Mock(return_value=provider))
+
+    async def consume_and_cancel() -> None:
+        stream = gateway.stream(_chat_request())
+        pending_event = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        pending_event.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await pending_event
+
+    asyncio.run(consume_and_cancel())
+
+    provider.stream.assert_called_once()
+    assert closed_attempts == [True]
+
+
+def test_stream_aclose_closes_provider_stream() -> None:
+    delta = ChatDelta(request_id="request-1", content="visible")
+    provider = FakeChatProvider(
+        content="",
+        stream_events=(
+            delta,
+            ChatDone(
+                request_id="request-1",
+                finish_reason=FinishReason.STOP,
+            ),
+        ),
+    )
+    gateway = _gateway(Mock(return_value=provider))
+
+    async def consume_and_close() -> None:
+        stream = gateway.stream(_chat_request())
+        assert await anext(stream) == delta
+        await stream.aclose()
+
+    asyncio.run(consume_and_close())
+
+    assert provider.stream_closed is True
+
+
+def test_stream_rejects_missing_done_as_provider_failure() -> None:
+    provider = FakeChatProvider(content="", stream_events=())
+    gateway = _gateway(
+        Mock(return_value=provider),
+        max_retry_attempts=3,
+    )
+
+    with pytest.raises(AIProviderUnavailableError) as error_info:
+        asyncio.run(_collect_stream(gateway.stream(_chat_request())))
+
+    assert isinstance(error_info.value.__cause__, ProviderStreamError)
+    assert provider.stream_closed is True
+
+
+def test_stream_rejects_unconfigured_model_without_calling_factory() -> None:
+    provider_factory = Mock()
+    gateway = _gateway(provider_factory)
+    request = ChatRequest(
+        request_id="request-1",
+        messages=_chat_request().messages,
+        model_alias="missing",
+    )
+
+    with pytest.raises(AIInvalidModelError):
+        asyncio.run(_collect_stream(gateway.stream(request)))
+
+    provider_factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("temperature", "max_output_tokens"),
+    [
+        (2.1, None),
+        (None, 1025),
+    ],
+)
+def test_stream_rejects_invalid_parameters_without_calling_factory(
+    temperature: float | None,
+    max_output_tokens: int | None,
+) -> None:
+    provider_factory = Mock()
+    gateway = _gateway(provider_factory)
+    request = ChatRequest(
+        request_id="request-1",
+        messages=_chat_request().messages,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+    )
+
+    with pytest.raises(AIInvalidRequestError):
+        asyncio.run(_collect_stream(gateway.stream(request)))
+
+    provider_factory.assert_not_called()
+
+
+def test_stream_rejects_context_overflow_without_calling_factory() -> None:
+    provider_factory = Mock()
+    gateway = AIGateway(
+        model_configs={"general": _model_config()},
+        default_model_alias="general",
+        provider_factory=provider_factory,
+        max_retry_attempts=0,
+        retry_backoff_seconds=0.0,
+        total_deadline_seconds=1.0,
+        stream_idle_timeout_seconds=1.0,
+        stream_total_deadline_seconds=1.0,
+        input_token_estimator=Mock(return_value=3_841),
+    )
+    request = ChatRequest(
+        request_id="request-1",
+        messages=_chat_request().messages,
+        max_output_tokens=256,
+    )
+
+    with pytest.raises(
+        AIInvalidRequestError,
+        match="exceeds the model context window",
+    ):
+        asyncio.run(_collect_stream(gateway.stream(request)))
+
+    provider_factory.assert_not_called()

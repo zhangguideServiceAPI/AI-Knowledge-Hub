@@ -2,9 +2,9 @@
 
 ## 文档状态
 
-Story 4.2 流程设计已确认。Story 4.3 至 4.5 的 ChatProvider 契约、Fake Provider、
-Factory、真实 Adapter、AIGateway、ChatService 和非流式 Router 已经可执行；Prompt
-Center、Streaming 与 UsageRepository 是后续实现。
+Story 4.2 流程设计已确认。Story 4.3 至 4.6 的 ChatProvider 契约、Fake Provider、
+Factory、真实 Adapter、AIGateway、ChatService、非流式 Router 与 SSE Router 已经可
+执行；Prompt Center 与 UsageRepository 是后续实现。
 
 ## 非流式调用链
 
@@ -63,6 +63,7 @@ sequenceDiagram
     S->>G: stream(stable request)
     G->>A: stream(provider request)
     A->>L: Open upstream HTTP stream
+    R->>S: anext(service stream) prefetch first event
 
     alt Failure before first public event
         L--xA: Timeout / rate limit / unavailable
@@ -134,6 +135,11 @@ flowchart LR
 
 Python 取消使用原生 `asyncio.CancelledError`，不能包装成 Provider Error。每层只完成
 自己拥有资源的清理并继续传播取消；Provider Adapter 的 `finally` 负责关闭上游连接。
+
+首 Event 预取期间由 Router 持有 Service Stream，并把首 Event 等待与 ASGI
+`http.disconnect` 监听组成竞速；异常、断连或任务取消时显式 `aclose()`。首 Event
+成功后，所有权移交给 SSE Body Iterator，其 `aclosing` 在正常终态、流中异常、响应
+任务取消或主动关闭时继续触发下层清理。
 
 这里存在两条不同 HTTP 连接：客户端到 FastAPI 的下游连接由 Router 管理，FastAPI
 到 LLM 的上游连接由 Provider Adapter/SDK 管理。取消必须沿调用链传播，才能同时释放两端。

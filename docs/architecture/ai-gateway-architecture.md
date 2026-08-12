@@ -4,8 +4,9 @@
 
 Story 4.2 设计已确认，Story 4.3 已实现最小 ChatProvider 契约与 Fake Provider，
 Story 4.4 已实现配置、Factory 与真实 Adapter，Story 4.5 已实现 AIGateway、
-ChatService 和非流式 `/ai/chat`。本文同时标注当前代码和后续目标调用链；虚线能力
-不能理解为已经进入运行时。
+ChatService 和非流式 `/ai/chat`，Story 4.6 已实现 Gateway/Service Streaming 与
+`/ai/chat/stream`。本文同时标注当前代码和后续目标调用链；虚线能力不能理解为已经
+进入运行时。
 
 ## 架构目标
 
@@ -61,8 +62,8 @@ flowchart LR
     U -.-> D[("MySQL")]
 ```
 
-实线表示 Story 4.3 至 4.5 已有代码和测试；Prompt Center、UsageRepository 和
-Streaming 相关能力仍以虚线表示，分别在后续 Story 中实现。
+实线表示 Story 4.3 至 4.6 已有代码和测试；Prompt Center 与 UsageRepository 仍以
+虚线表示，分别在后续 Story 中实现。
 
 ## 职责边界
 
@@ -112,7 +113,8 @@ ChatEvent
 ```
 
 Provider 流不产生 `error` Event。可预期失败以 `ProviderError` 子类抛出，避免把
-正常数据和控制流混在一个过大的联合类型中。公共 SSE `error` 是后续 HTTP 层契约。
+正常数据和控制流混在一个过大的联合类型中。公共 SSE `error` 由 HTTP/SSE 层在流
+开始后从领域异常安全转换。
 
 DTO 使用不可变 dataclass，避免请求在异步调用期间被其他层悄悄修改。Token Usage
 允许缺失，因为部分 Provider 或异常流无法提供可信的最终统计；缺失不能伪造为零。

@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
@@ -7,7 +8,16 @@ import pytest
 
 from app.ai.exceptions import AIProviderTimeoutError
 from app.ai.gateway import AIGateway, ChatRequest, GatewayChatResult
-from app.ai.provider import ChatMessage, ChatRole, FinishReason, TokenUsage
+from app.ai.provider import (
+    ChatDelta,
+    ChatDone,
+    ChatEvent,
+    ChatMessage,
+    ChatRole,
+    ChatUsageEvent,
+    FinishReason,
+    TokenUsage,
+)
 from app.schemas.ai import ChatRequestSchema
 from app.services.chat_service import ChatService
 
@@ -135,3 +145,153 @@ def test_chat_propagates_gateway_error_without_logging_success(
 
     assert "ai.chat.success" not in caplog.text
     assert "private user content" not in caplog.text
+
+
+async def _collect_stream(stream: AsyncIterator[ChatEvent]) -> list[ChatEvent]:
+    return [event async for event in stream]
+
+
+async def _gateway_stream(
+    events: tuple[ChatEvent, ...],
+    *,
+    error: Exception | None = None,
+    closed: list[bool] | None = None,
+) -> AsyncIterator[ChatEvent]:
+    try:
+        for event in events:
+            yield event
+
+        if error is not None:
+            raise error
+    finally:
+        if closed is not None:
+            closed.append(True)
+
+
+async def _blocking_gateway_stream(
+    closed: list[bool],
+) -> AsyncIterator[ChatEvent]:
+    try:
+        await asyncio.Event().wait()
+        yield ChatDone(
+            request_id=REQUEST_ID,
+            finish_reason=FinishReason.STOP,
+        )
+    finally:
+        closed.append(True)
+
+
+def test_stream_maps_public_request_and_yields_gateway_events() -> None:
+    user_content = "private stream content"
+    usage = TokenUsage(
+        input_tokens=4,
+        output_tokens=6,
+        total_tokens=10,
+    )
+    events: tuple[ChatEvent, ...] = (
+        ChatDelta(request_id=REQUEST_ID, content="First"),
+        ChatUsageEvent(request_id=REQUEST_ID, usage=usage),
+        ChatDone(
+            request_id=REQUEST_ID,
+            finish_reason=FinishReason.STOP,
+        ),
+    )
+    closed: list[bool] = []
+    gateway = Mock(spec=AIGateway)
+    gateway.stream.return_value = _gateway_stream(events, closed=closed)
+    service = ChatService(gateway)
+    request = ChatRequestSchema(
+        messages=[
+            {"content": user_content},
+            {"content": "second message"},
+        ],
+        model="general",
+        temperature=0.7,
+        max_output_tokens=256,
+    )
+
+    with patch("app.services.chat_service.uuid4", return_value=REQUEST_UUID):
+        result = asyncio.run(_collect_stream(service.stream(request, user_id=42)))
+
+    assert result == list(events)
+    gateway.stream.assert_called_once_with(
+        ChatRequest(
+            request_id=REQUEST_ID,
+            messages=(
+                ChatMessage(role=ChatRole.USER, content=user_content),
+                ChatMessage(role=ChatRole.USER, content="second message"),
+            ),
+            model_alias="general",
+            temperature=0.7,
+            max_output_tokens=256,
+        )
+    )
+    assert closed == [True]
+
+
+def test_stream_propagates_gateway_error_and_closes_gateway_stream() -> None:
+    error = AIProviderTimeoutError("safe gateway timeout")
+    closed: list[bool] = []
+    gateway = Mock(spec=AIGateway)
+    gateway.stream.return_value = _gateway_stream(
+        (),
+        error=error,
+        closed=closed,
+    )
+    service = ChatService(gateway)
+    request = ChatRequestSchema(messages=[{"content": "private content"}])
+
+    with pytest.raises(AIProviderTimeoutError) as error_info:
+        asyncio.run(_collect_stream(service.stream(request, user_id=42)))
+
+    assert error_info.value is error
+    assert closed == [True]
+
+
+def test_stream_propagates_cancellation_and_closes_gateway_stream() -> None:
+    closed: list[bool] = []
+    gateway = Mock(spec=AIGateway)
+    gateway.stream.return_value = _blocking_gateway_stream(closed)
+    service = ChatService(gateway)
+    request = ChatRequestSchema(messages=[{"content": "private content"}])
+
+    async def consume_and_cancel() -> None:
+        service_stream = service.stream(request, user_id=42)
+        pending_event = asyncio.create_task(anext(service_stream))
+        await asyncio.sleep(0)
+        pending_event.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await pending_event
+
+    asyncio.run(consume_and_cancel())
+
+    gateway.stream.assert_called_once()
+    assert closed == [True]
+
+
+def test_stream_aclose_closes_gateway_stream() -> None:
+    delta = ChatDelta(request_id=REQUEST_ID, content="visible")
+    closed: list[bool] = []
+    gateway = Mock(spec=AIGateway)
+    gateway.stream.return_value = _gateway_stream(
+        (
+            delta,
+            ChatDone(
+                request_id=REQUEST_ID,
+                finish_reason=FinishReason.STOP,
+            ),
+        ),
+        closed=closed,
+    )
+    service = ChatService(gateway)
+    request = ChatRequestSchema(messages=[{"content": "private content"}])
+
+    async def consume_and_close() -> None:
+        service_stream = service.stream(request, user_id=42)
+        assert await anext(service_stream) == delta
+        await service_stream.aclose()
+
+    asyncio.run(consume_and_close())
+
+    assert closed == [True]
