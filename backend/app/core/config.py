@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
@@ -45,6 +46,24 @@ AIModelAlias = Annotated[
 ]
 
 
+class AIModelPricingConfig(BaseModel):
+    """某个模型在指定价格版本下的成本配置。"""
+
+    # 单价统一按一百万 Token 表达；Decimal 避免金额先经过二进制 float。
+    input_price_per_million_tokens: Decimal = Field(ge=0)
+    output_price_per_million_tokens: Decimal = Field(ge=0)
+    currency: str = Field(
+        min_length=3,
+        max_length=3,
+        pattern=r"^[A-Z]{3}$",
+    )
+    version: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+
+
 class AIModelConfig(BaseModel):
     # 关联哪个 Provider
     provider_key: str = Field(
@@ -65,6 +84,8 @@ class AIModelConfig(BaseModel):
     default_max_output_tokens: PositiveInt  # 客户端未提交时的默认输出预算
     max_output_tokens: PositiveInt  # 服务端允许的最大输出预算
     context_window_tokens: PositiveInt  # 输入与输出共同使用的上下文上限
+    # 未配置 Pricing 或 Provider 没有返回完整 Token 时，Usage 成本保持未知。
+    pricing: AIModelPricingConfig | None = None
 
     @model_validator(mode="after")
     def validate_token_limits(self) -> Self:

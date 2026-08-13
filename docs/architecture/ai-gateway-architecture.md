@@ -3,10 +3,9 @@
 ## 文档状态
 
 Story 4.2 设计已确认，Story 4.3 已实现最小 ChatProvider 契约与 Fake Provider，
-Story 4.4 已实现配置、Factory 与真实 Adapter，Story 4.5 已实现 AIGateway、
-ChatService 和非流式 `/ai/chat`，Story 4.6 已实现 Gateway/Service Streaming 与
-`/ai/chat/stream`。本文同时标注当前代码和后续目标调用链；虚线能力不能理解为已经
-进入运行时。
+Story 4.4 已实现配置、Factory 与真实 Adapter，Story 4.5 至 4.6 已实现 AIGateway、
+ChatService、非流式 `/ai/chat` 与 `/ai/chat/stream`，Story 4.7 至 4.8 已接入 Prompt
+Center、Usage 终态与成本快照。图中组件均已进入当前运行链路。
 
 ## 架构目标
 
@@ -46,7 +45,7 @@ mindmap
 flowchart LR
     C["Client"] --> R["AI Router"]
     R --> S["ChatService"]
-    S -.-> P["Prompt Center"]
+    S --> P["Prompt Center"]
     S --> G["AIGateway"]
     G --> M["Model Alias Policy"]
     G --> F["Provider Factory"]
@@ -58,12 +57,13 @@ flowchart LR
     FP["FakeChatProvider"] --> CP
     A --> CP
 
-    S -.-> U["UsageRepository"]
-    U -.-> D[("MySQL")]
+    S --> U["UsageRepository"]
+    U --> D[("MySQL")]
 ```
 
-实线表示 Story 4.3 至 4.6 已有代码和测试；Prompt Center 与 UsageRepository 仍以
-虚线表示，分别在后续 Story 中实现。
+完整调用链已有代码和测试。Service 在构造 Gateway Request 前按固定 `assistant/v1`
+渲染 System Message，并与客户端输入的 User Message 合并；请求进入成功、失败或取消
+终态后，通过独立短事务写入 UsageRepository。Streaming 生成期间不持有数据库事务。
 
 ## 职责边界
 
@@ -74,7 +74,12 @@ flowchart LR
 | AIGateway | 解析模型别名、选择 Provider、执行超时与有限重试、返回稳定结果 | 用户权限、Prompt 历史、Usage 落库 |
 | Provider Factory | 根据内部 Provider Key 和 Settings 创建或取得 Adapter | 业务模型选择、HTTP 响应 |
 | Provider Adapter | 构造 SDK 请求、转换响应/Chunk、关闭连接、翻译 SDK 异常 | 用户身份、业务错误码、数据库 |
+| Prompt Center | 按 Key/Version 加载、校验、缓存并严格渲染 Prompt | 选择业务 Prompt、调用模型、读取用户数据库 |
 | UsageRepository | 读写 Usage 数据 | 计算业务终态、保存正文、调用 Provider |
+
+成本规则属于 Service 协调的调用终态：只有模型价格与完整输入/输出 Token 同时存在时，
+才生成 Decimal 成本、币种与价格版本快照。Gateway 和 Provider 不知道 `user_id`，也不
+写 Usage。
 
 Factory 只解决“如何获得一个具体 Adapter”。Gateway 仍然拥有模型别名策略、调用
 生命周期、Retry/Timeout 和稳定返回边界，所以两者不是重复职责。
@@ -94,7 +99,8 @@ flowchart LR
 ```
 
 - 公共 API 不接收 `role`、Provider Key、真实模型名、Base URL 或 API Key。
-- ChatService 把公开输入转换为受控 `user` Message，并由 Prompt Center 添加 `system` Message。
+- ChatService 把公开输入转换为受控 `user` Message，并由 Prompt Center 添加 `system` Message；
+  非流式和流式请求共用同一个内部构造方法。
 - Gateway 把业务 `model_alias` 解析为 Provider Key 与 `provider_model`。
 - API Key 只在真实 Provider 的初始化配置中出现，不进入 Request DTO。
 - `finish_reason`、`usage` 和 Provider 错误是调用结果，不是初始化参数。
@@ -143,3 +149,6 @@ Embedding 的 Provider 实现无意义的 Chat 方法，也不会让调用方依
 - [Sprint 4](../Sprint/Sprint4.md)
 - [ADR-0025](adr/ADR-0025-use-ai-gateway-boundary.md)
 - [ADR-0026](adr/ADR-0026-use-capability-specific-chat-provider.md)
+- [ADR-0027](adr/ADR-0027-streaming-retry-and-terminal-state.md)
+- [ADR-0028](adr/ADR-0028-file-based-prompt-center.md)
+- [ADR-0029](adr/ADR-0029-usage-cost-snapshot-and-data-minimization.md)

@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：11 / 100
+正式完整答案：12 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -71,7 +71,7 @@ Sprint 3 项目与学习计划：已完成
 Sprint 3 面试答案：8 / 8，项目证据已同步
 
 Sprint 4 学习地图：已完成
-Sprint 4 面试答案：3 / 10，随 Story 4.0 至 4.9 逐步完成
+Sprint 4 面试答案：4 / 10，随 Story 4.0 至 4.9 逐步完成
 ```
 
 不暂停当前 Sprint 去一次性补写 Sprint 1/2 的 20 道历史答案。Sprint 4 推进期间可以额外回填少量历史问题；新的 Sprint 4 面试题必须在对应 Story Review 时同步完成，避免继续产生欠账。
@@ -623,6 +623,62 @@ Fake Provider 是测试替身，可以预先配置 `ChatResult`、事件序列�
 
 `理解 / 能写`：Fake 与 22 个离线测试已完成（2026-08-07）。
 `能讲 / 能画`：真实 Integration 分层待 Story 4.4 完成后复查。
+
+### Q9. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
+
+**30 秒简答**
+
+一条客户端请求只记录一条最终 Usage，由 ChatService 在成功、失败或取消后使用短事务
+落库。Token 只相信 Provider 返回值，缺失时保存 `NULL`；流式首个 Delta 计算 TTFT；
+价格与输入/输出 Token 都完整时用 Decimal 保存成本、币种和价格版本快照。Usage 和
+日志不保存 Message、Prompt、回答、Secret 或原始异常。
+
+**2 分钟完整回答**
+
+Usage 是可查询的调用事实，不是应用日志、Metrics 或 Provider 账单。`latency_ms` 从
+业务请求开始到终态，Streaming 的 `time_to_first_token_ms` 从开始到首个 `ChatDelta`；
+非流式或首 Delta 前失败时 TTFT 是 `NULL`。一次 Gateway Retry 仍属于同一个客户端
+请求，因此只生成一条 `ChatUsage`。成功记录 `finish_reason`，失败和取消记录固定内部
+`error_code`。Provider 可能不返回 Usage，或流中断时只返回部分统计，未知值必须是
+`NULL` 而不是零。
+
+成本配置放在模型别名注册表中，输入与输出单价统一按每百万 Token 表达。只有输入与
+输出 Token 都可信时，才使用 `Decimal` 计算并保存 `estimated_cost + currency +
+pricing_version`。三者组成调用发生时的历史快照，以后修改价格不会改写旧记录。Service
+协调这些业务终态，Repository 只执行 SQL；模型生成期间不持有数据库事务，结束后才
+用独立 Session 写短事务。落库失败回滚并写安全日志，但不把成功回答改成失败。
+
+**项目中的设计或代码证据**
+
+- `app/models/usage.py` 用 Check Constraint 约束终态、Token、成本快照和非负耗时。
+- `app/ai/usage_cost.py` 使用 Decimal 与价格版本生成不可变成本快照。
+- `ChatService` 记录非流式和 Streaming 的 success/failed/cancelled，并在首 Delta 计算
+  TTFT；`ChatUsageRepository` 只负责创建与查询。
+- ADR-0029 固化短事务、未知 Token、价格快照和内容数据最小化。
+
+**为什么没有采用其他方案**
+
+- 不让 Gateway/Provider 写 Usage，因为它们不知道认证用户和最终业务终态。
+- 不在 Streaming 期间持有数据库事务，避免慢模型长期占用数据库连接。
+- 不用字符数猜 Token，也不把未知值写成零。
+- 不保存完整 Prompt 和回答换取排查便利，当前没有对应权限、保留和脱敏需求。
+
+**常见追问**
+
+- Provider 成功但 Usage 落库失败，API 应该返回成功还是失败？
+- 流中断只拿到 input_tokens 时，成本能否估算？
+- 为什么成本快照不是账单？
+
+**容易说错的地方**
+
+- TTFT 是首个内容 Delta 的等待时间，不是收到最终 Usage 或 Done 的时间。
+- `NULL` 表示不知道，零表示明确没有消耗，两者不能混用。
+- 成本快照是配置价格下的估算，不保证等于 Provider 最终结算。
+
+**掌握状态**
+
+`理解 / 能写`：Usage、TTFT、三种终态、成本快照与短事务已实现（2026-08-13）。
+`能讲 / 能画`：Story 4.9 Sprint Review 时复查完整生命周期。
 
 ## Sprint 5: RAG
 
