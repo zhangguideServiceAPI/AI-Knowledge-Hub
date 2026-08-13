@@ -1,4 +1,5 @@
 from pathlib import Path
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -22,6 +23,29 @@ def test_ai_model_config_accepts_valid_token_limits() -> None:
     assert config.default_max_output_tokens == 512
     assert config.max_output_tokens == 1024
     assert config.context_window_tokens == 4096
+
+
+def test_ai_model_config_accepts_optional_versioned_pricing() -> None:
+    config = AIModelConfig(
+        provider_key="primary",
+        provider_model="gpt-5.5",
+        default_temperature=0.3,
+        default_max_output_tokens=512,
+        max_output_tokens=1024,
+        context_window_tokens=4096,
+        pricing={
+            "input_price_per_million_tokens": "1.25",
+            "output_price_per_million_tokens": "5.00",
+            "currency": "USD",
+            "version": "2026-08",
+        },
+    )
+
+    assert config.pricing is not None
+    assert config.pricing.input_price_per_million_tokens == Decimal("1.25")
+    assert config.pricing.output_price_per_million_tokens == Decimal("5.00")
+    assert config.pricing.currency == "USD"
+    assert config.pricing.version == "2026-08"
 
 
 @pytest.mark.parametrize(

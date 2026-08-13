@@ -2,16 +2,16 @@
 
 ## 状态
 
-Sprint 4 正在实施。Story 4.0 至 4.6 已完成：Provider 稳定契约、领域异常、
+Sprint 4 正在实施。Story 4.0 至 4.8 已完成：Provider 稳定契约、领域异常、
 Fake Provider、配置注册表、Factory、OpenAI-compatible Adapter、AIGateway、
 ChatService、非流式 `/ai/chat` 和流式 `/ai/chat/stream` 已有代码与纵向验证；Prompt
-Center 与 Usage 持久化仍在后续 Story 中实现。
+Center、Usage 终态和成本快照已接入 ChatService。
 
 ```text
 Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.7 Prompt Center
-Current Goal: 使用可版本化、可审计的模板生成受控 System Prompt
-Current Step: Step 1 - 确认 Prompt Template、变量与 ChatService 的职责边界
+Current Story: Story 4.9 Lifecycle, Testing & Sprint Review
+Current Goal: 完成端到端生命周期验收与 Sprint 收尾
+Current Step: Step 1 - 执行全量测试、安全审查和文档同步
 ```
 
 | Story | 状态 | 已形成的证据 |
@@ -23,6 +23,9 @@ Current Step: Step 1 - 确认 Prompt Template、变量与 ChatService 的职责�
 | 4.4 Config, Factory & Real Provider | 已完成 | Provider Registry、Factory 缓存、真实 Adapter 与真实联调 |
 | 4.5 AIGateway & Non-stream Chat API | 已完成 | AIGateway、ChatService、`POST /ai/chat`、Context Window、安全错误、API 测试与真实纵向验证 |
 | 4.6 SSE Streaming | 已完成 | Gateway/Service Stream、认证 SSE Router、首 Event 预取、ASGI 断连竞速、错误终态、取消释放与纵向测试 |
+| 4.7 Prompt Center | 已完成 | 文件版本、严格变量、预加载缓存、受控 System Message 与 ADR-0028 |
+| 4.8 Usage & Observability | 已完成 | ChatUsage、Migration、Repository、三种终态、TTFT、成本快照与 ADR-0029 |
+| 4.9 Lifecycle, Testing & Sprint Review | 进行中 | 全链路、真实 Provider、回归、安全、Review 与 Sprint 收尾 |
 
 ## Sprint 定位
 
@@ -554,13 +557,20 @@ Provider 原始错误信息可能包含 Request、Endpoint 或内部细节，不
 Sprint 4 先使用文件型 Prompt Center，通过 Git 获得 Review、审计和回滚能力：
 
 ```text
-app/ai/prompts/
-  summary/
-    v1.md
-  translate/
-    v1.md
+app/ai/prompt_center/       # 加载、校验、渲染与缓存代码
+app/ai/prompts/             # Git 管理的 Prompt 资产
   assistant/
-    v1.md
+    v1/
+      metadata.toml
+      template.md
+  summary/                  # 带 language、style 变量的真实学习示例
+    v1/
+      metadata.toml
+      template.md
+  translation/              # 带源语言、目标语言、语气变量的真实学习示例
+    v1/
+      metadata.toml
+      template.md
 ```
 
 每个 Prompt 至少具有：
@@ -581,7 +591,17 @@ required_variables
 - Prompt 版本不会自动覆盖旧版本；变更通过新版本和代码 Review 发布。
 - RAG Prompt 可以预留名称，但在 Sprint 5 进入前不实现 RAG 内容和检索变量。
 
-## Usage 数据模型候选
+当前实现使用标准库 `tomllib` 和 `string.Formatter`，不新增模板依赖。Prompt Center
+启动预加载时校验全部资产，并只缓存未渲染 `PromptTemplate`；缓存键为
+`(prompt_key, version)`。占位符只允许简单 `{name}`，属性、索引、转换和格式说明符
+一律拒绝。变量值只允许字符串且只渲染一次，变量值中的 `{name}` 不会再次执行。
+
+TOML 和 Markdown 都是通用格式，但把 `metadata.toml` 与 `template.md` 配对是本项目
+通过 ADR-0028 确定的目录契约，不是模型 SDK 或行业强制标准。TOML 负责可机器校验的
+短元数据；Markdown 负责便于人类编写和 Review 的多行正文，当前代码只把 Markdown
+当作 UTF-8 文本读取，并不执行 Markdown 渲染。
+
+## Usage 数据模型（Story 4.8 已实现）
 
 ```text
 id
@@ -596,6 +616,7 @@ input_tokens
 output_tokens
 total_tokens
 latency_ms
+time_to_first_token_ms
 status
 error_code
 estimated_cost
@@ -615,15 +636,15 @@ completed_at
 - Usage 表不保存 Message、System Prompt、模型回答正文、API Key 或原始异常。
 - Usage Repository 只负责 SQL；成本规则和请求终态由 Service 协调。
 
-## 日志候选
+## AI 日志契约
 
 | 事件 | 级别 | 允许字段 |
 | --- | --- | --- |
-| `ai.chat.success` | INFO | `request_id`、`user_id`、model alias、token、latency |
-| `ai.chat.rejected` | WARNING | `request_id`、`user_id`、固定 reason |
+| `ai.chat.success` | INFO | `request_id`、model alias、token、latency |
+| `ai.chat.rejected` | WARNING | `request_id`、固定 reason |
 | `ai.provider.retry` | WARNING | `request_id`、attempt、固定 reason |
 | `ai.provider.unavailable` | ERROR | `request_id`、provider、固定 error type |
-| `ai.stream.cancelled` | INFO | `request_id`、`user_id`、elapsed time |
+| `ai.stream.cancelled` | INFO | `request_id`、model alias、elapsed time |
 | `ai.usage.persist_failed` | ERROR | `request_id`、固定 reason |
 
 日志禁止记录：
@@ -633,6 +654,7 @@ completed_at
 - Provider Base URL 中的敏感查询参数。
 - Provider 原始异常正文和完整请求响应。
 - 未经清理的用户变量、文件内容或未来 RAG Context。
+- `user_id` 只保存在受控 Usage 记录中，不复制到普通 AI 日志。
 
 ## 候选项目结构
 
@@ -967,6 +989,25 @@ ChatService 应负责：
 - ChatService 通过 Prompt Key 使用模板，不读取文件路径。
 - 日志只记录 Prompt Key 和 Version。
 
+### 当前实现记录
+
+- `PromptTemplate` 与 `RenderedPrompt` 使用不可变数据契约；输出携带实际加载并校验的
+  Prompt Key 和 Version。
+- `PromptError` 与 `AIError`、`ProviderError` 相互独立，并区分未知 Key、未知版本、
+  配置损坏和调用变量不匹配。
+- `PromptCenter` 使用 `metadata.toml + template.md`，校验目录身份、元数据字段、变量
+  声明、模板占位符和 UTF-8 正文。
+- `get_prompt_center()` 全量预加载 Prompt 并缓存单例；请求渲染只复用已校验模板，
+  不缓存包含本次变量值的 `RenderedPrompt`。
+- 默认 `assistant/v1`、带变量的 `summary/v1` 和 `translation/v1` Prompt 资产已建立；
+  Prompt Center 专项测试与 ChatService 接入测试持续覆盖严格渲染、消息顺序和错误边界。
+- ChatService 已通过依赖注入取得 Prompt Center，并显式使用 `assistant/v1` 创建受控
+  `system` Message；公开 Chat Schema 和 Router 不接收 Prompt Key、Version 或变量。
+- PromptError 已由 HTTP 层单独映射为安全的 500 `ai_internal_error`；流式首 Event 前
+  的 PromptError 仍返回 JSON，不会错误创建 200 SSE 响应。
+- Story 4.7 验证结果：AI 回归 `235 passed`，全量测试 `596 passed, 18 skipped`，
+  Ruff Check、Ruff Format Check 与 `git diff --check` 均通过。
+
 ### 完成标准
 
 - 业务 Python 中不包含需要独立维护的长 Prompt。
@@ -1005,6 +1046,18 @@ ChatService 应负责：
 - Usage 写入失败不会把已完成的模型回答伪装成未发生。
 - 成本历史不会因以后修改价格配置而被重新解释。
 - Story Review、文档同步和 Commit 完成。
+
+### 完成证据
+
+- `ChatUsage` Model、Migration 与 Repository 已实现；Migration 已完成
+  `upgrade -> downgrade -> upgrade`，最终位于 `575175576c72 (head)`。
+- 非流式与 Streaming 均记录 `success / failed / cancelled`；Streaming 首个 Delta
+  计算 TTFT，最终 Usage 缺失时 Token 保持 `NULL`。
+- 可选模型价格按每百万 Token 配置；完整 Token 存在时使用 Decimal 写入成本、币种和
+  价格版本快照，数据不完整时三列同时为 `NULL`。
+- Usage 使用独立短事务；落库失败会回滚并记录安全日志，不替换模型结果或原始错误。
+- Story 4.8 专项测试 `87 passed`，AI/API 回归 `239 passed`，Ruff 通过。
+- ADR-0029 固化 Usage 终态、成本快照与内容数据最小化决策。
 
 ## Story 4.9: Lifecycle, Testing & Sprint Review
 
@@ -1079,8 +1132,8 @@ Sprint 4 至少覆盖以下核心问题：
 - ADR-0025：为什么建立 AI Gateway，而不是业务直接依赖 Provider SDK。（已接受）
 - ADR-0026：为什么使用 Capability-specific Provider Protocol。（已接受）
 - ADR-0027：SSE Streaming、Retry 和错误终态策略。（已接受）
-- ADR-0028：Prompt Center 的文件版本策略。
-- ADR-0029：Usage、成本快照与内容数据最小化。
+- ADR-0028：Prompt Center 的文件版本策略。（已接受）
+- ADR-0029：Usage、成本快照与内容数据最小化。（已接受）
 
 只有形成长期且重要的技术决策时才创建 ADR。Story 4.2 必须先检查最新 ADR 编号，禁止直接复用候选编号。
 

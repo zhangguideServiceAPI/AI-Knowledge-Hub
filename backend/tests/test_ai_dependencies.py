@@ -2,8 +2,13 @@ from unittest.mock import Mock, patch
 
 from app.ai.gateway import AIGateway
 from app.ai.prompt_center import PromptCenter
-from app.api.dependencies import get_ai_gateway, get_chat_service
+from app.api.dependencies import (
+    get_ai_gateway,
+    get_chat_service,
+    get_usage_session_factory,
+)
 from app.core.config import settings
+from app.db.session import SessionLocal
 
 
 def test_get_ai_gateway_wires_settings_without_creating_provider() -> None:
@@ -28,9 +33,24 @@ def test_get_ai_gateway_wires_settings_without_creating_provider() -> None:
 def test_get_chat_service_uses_injected_gateway_and_prompt_center() -> None:
     gateway = Mock(spec=AIGateway)
     prompt_center = Mock(spec=PromptCenter)
+    usage_session_factory = Mock()
 
     with patch("app.api.dependencies.ChatService") as service_type:
-        service = get_chat_service(gateway, prompt_center)
+        service = get_chat_service(
+            gateway,
+            prompt_center,
+            usage_session_factory,
+        )
 
-    service_type.assert_called_once_with(gateway, prompt_center)
+    service_type.assert_called_once_with(
+        gateway,
+        prompt_center,
+        usage_session_factory=usage_session_factory,
+        model_configs=settings.AI_MODELS,
+        default_model_alias=settings.AI_DEFAULT_MODEL_ALIAS,
+    )
     assert service is service_type.return_value
+
+
+def test_get_usage_session_factory_returns_application_session_factory() -> None:
+    assert get_usage_session_factory() is SessionLocal

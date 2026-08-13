@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends
@@ -11,7 +12,7 @@ from app.core.config import settings
 from app.core.exceptions import InvalidAccessTokenError
 from app.db.redis_client import redis_client
 from app.db.repositories.session_repository import SessionRepository
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.file_service import FileService
@@ -81,12 +82,28 @@ def get_ai_gateway() -> AIGateway:
     )
 
 
+def get_usage_session_factory() -> Callable[[], Session]:
+    """返回短事务 Session 工厂，并允许测试替换为隔离数据库。"""
+
+    return SessionLocal
+
+
 def get_chat_service(
-    # FastAPI 先解析两个 Depends，再把结果作为参数注入此函数。
+    # FastAPI 先解析三个 Depends，再把结果作为参数注入此函数。
     gateway: Annotated[AIGateway, Depends(get_ai_gateway)],
     prompt_center: Annotated[
         PromptCenter,
         Depends(get_prompt_center),
     ],
+    usage_session_factory: Annotated[
+        Callable[[], Session],
+        Depends(get_usage_session_factory),
+    ],
 ) -> ChatService:
-    return ChatService(gateway, prompt_center)
+    return ChatService(
+        gateway,
+        prompt_center,
+        usage_session_factory=usage_session_factory,
+        model_configs=settings.AI_MODELS,
+        default_model_alias=settings.AI_DEFAULT_MODEL_ALIAS,
+    )

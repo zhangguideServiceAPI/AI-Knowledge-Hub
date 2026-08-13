@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
@@ -15,7 +15,11 @@ if os.getenv("RUN_REDIS_INTEGRATION_TESTS") != "1":
 os.environ["JWT_ACTIVE_KEY_ID"] = "test-v1"
 os.environ["JWT_SIGNING_KEYS"] = '{"test-v1":"test-only-jwt-secret-key-32-characters"}'
 
-from app.api.dependencies import get_login_rate_limiter, get_session_repository
+from app.api.dependencies import (
+    get_login_rate_limiter,
+    get_session_repository,
+    get_usage_session_factory,
+)
 from app.db.base import Base
 from app.db.repositories.session_repository import SessionRepository
 from app.db.session import get_db
@@ -59,7 +63,14 @@ def client(
     def override_get_db() -> Generator[Session, None, None]:
         yield session
 
+    usage_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_usage_session_factory] = lambda: usage_session_factory
     app.dependency_overrides[get_login_rate_limiter] = lambda: login_rate_limiter
     app.dependency_overrides[get_session_repository] = lambda: session_repository
 
@@ -67,6 +78,7 @@ def client(
         yield test_client
 
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_usage_session_factory, None)
     app.dependency_overrides.pop(get_login_rate_limiter, None)
     app.dependency_overrides.pop(get_session_repository, None)
 
