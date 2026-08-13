@@ -18,35 +18,54 @@ from app.ai.provider import (
     ChatMessage,
     ChatRole,
 )
+from app.ai.prompt_center import PromptCenter
 
 
-def _build_gateway_request(
-    request: ChatRequestSchema,
-    *,
-    request_id: str,
-) -> GatewayChatRequest:
-
-    # API Message 只包含正文；Service 负责创建受控 USER role。
-    messages = tuple(
-        ChatMessage(
-            role=ChatRole.USER,
-            content=message.content,
-        )
-        for message in request.messages
-    )
-
-    return GatewayChatRequest(
-        request_id=request_id,
-        messages=messages,
-        model_alias=request.model,
-        temperature=request.temperature,
-        max_output_tokens=request.max_output_tokens,
-    )
+_ASSISTANT_PROMPT_KEY = "assistant"
+_ASSISTANT_PROMPT_VERSION = "v1"
 
 
 class ChatService:
-    def __init__(self, gateway: AIGateway) -> None:
+    def __init__(self, gateway: AIGateway, prompt_center: PromptCenter) -> None:
         self._gateway = gateway
+        self._prompt_center = prompt_center
+
+    def _build_gateway_request(
+        self,
+        request: ChatRequestSchema,
+        *,
+        request_id: str,
+    ) -> GatewayChatRequest:
+
+        rendered_prompt = self._prompt_center.render(
+            prompt_key=_ASSISTANT_PROMPT_KEY,
+            version=_ASSISTANT_PROMPT_VERSION,
+            variables={},
+        )
+
+        system_message = ChatMessage(
+            role=ChatRole.SYSTEM,
+            content=rendered_prompt.content,
+        )
+
+        # API Message 只包含正文；Service 负责创建受控 USER role。
+        user_messages = tuple(
+            ChatMessage(
+                role=ChatRole.USER,
+                content=message.content,
+            )
+            for message in request.messages
+        )
+        # 末尾的逗号表示它是只有一个元素的元组。
+        messages = (system_message,) + user_messages
+
+        return GatewayChatRequest(
+            request_id=request_id,
+            messages=messages,
+            model_alias=request.model,
+            temperature=request.temperature,
+            max_output_tokens=request.max_output_tokens,
+        )
 
     async def chat(
         self,
@@ -56,8 +75,7 @@ class ChatService:
     ) -> ChatResponseSchema:
         request_id = str(uuid4())
 
-        gateway_request = _build_gateway_request(request, request_id=request_id)
-
+        gateway_request = self._build_gateway_request(request, request_id=request_id)
         started_at = perf_counter()  # 单调递增的高精度计时器，适合计算耗时
         result = await self._gateway.generate(gateway_request)
         latency_ms = int((perf_counter() - started_at) * 1000)
@@ -97,7 +115,7 @@ class ChatService:
         user_id: int,
     ) -> AsyncIterator[ChatEvent]:
         request_id = str(uuid4())
-        gateway_request = _build_gateway_request(
+        gateway_request = self._build_gateway_request(
             request,
             request_id=request_id,
         )

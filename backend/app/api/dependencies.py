@@ -4,6 +4,9 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.ai.factory import get_chat_provider
+from app.ai.gateway import AIGateway
+from app.ai.prompt_center import PromptCenter, get_prompt_center
 from app.core.config import settings
 from app.core.exceptions import InvalidAccessTokenError
 from app.db.redis_client import redis_client
@@ -15,8 +18,6 @@ from app.services.file_service import FileService
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
-from app.ai.factory import get_chat_provider
-from app.ai.gateway import AIGateway
 from app.services.chat_service import ChatService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -81,7 +82,11 @@ def get_ai_gateway() -> AIGateway:
 
 
 def get_chat_service(
-    # FastAPI 先调用 get_ai_gateway()，再把结果注入这个参数。
+    # FastAPI 先解析两个 Depends，再把结果作为参数注入此函数。
     gateway: Annotated[AIGateway, Depends(get_ai_gateway)],
+    prompt_center: Annotated[
+        PromptCenter,
+        Depends(get_prompt_center),
+    ],
 ) -> ChatService:
-    return ChatService(gateway)
+    return ChatService(gateway, prompt_center)

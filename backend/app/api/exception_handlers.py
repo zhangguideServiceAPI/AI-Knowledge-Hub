@@ -34,6 +34,7 @@ from app.storage.exceptions import (
     StorageUnavailableError,
     UnsupportedFileTypeError,
 )
+from app.ai.prompt_center import PromptError
 
 
 async def email_already_registered_handler(
@@ -338,6 +339,28 @@ async def ai_error_handler(
     )
 
 
+async def prompt_error_handler(
+    request: Request,
+    error: PromptError,
+) -> JSONResponse:
+    logger.error(
+        "ai.prompt.failed method=%s path=%s error_type=%s",
+        request.method,
+        request.url.path,
+        type(error).__name__,
+    )
+
+    response = AIErrorResponse(
+        code=AIErrorCode.INTERNAL_ERROR,
+        detail="AI service failed to process the request.",
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response.model_dump(mode="json"),
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         EmailAlreadyRegisteredError,
@@ -386,3 +409,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         file_content_unavailable_handler,
     )
     app.add_exception_handler(AIError, ai_error_handler)
+
+    app.add_exception_handler(
+        PromptError,
+        prompt_error_handler,
+    )

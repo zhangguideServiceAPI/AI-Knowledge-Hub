@@ -27,6 +27,7 @@ from app.ai.provider import (
     TokenUsage,
 )
 from app.ai.providers.fake import FakeChatProvider
+from app.ai.prompt_center import PromptConfigurationError
 from app.api.dependencies import get_ai_gateway, get_chat_service, get_current_user
 from app.core.config import AIModelConfig
 from app.main import app
@@ -38,7 +39,7 @@ from app.services.chat_service import ChatService
 async def _service_stream(
     events: tuple[ChatEvent, ...],
     *,
-    error: AIError | None = None,
+    error: Exception | None = None,
     closed: list[bool] | None = None,
 ) -> AsyncIterator[ChatEvent]:
     try:
@@ -218,8 +219,12 @@ def test_chat_runs_authenticated_request_through_gateway_and_fake_provider(
     assert provider.last_request.provider_model == "fake-model"
     assert provider.last_request.temperature == 0.4
     assert provider.last_request.max_output_tokens == 128
-    assert provider.last_request.messages[0].role is ChatRole.USER
-    assert provider.last_request.messages[0].content == "Explain AI Gateway."
+    assert provider.last_request.messages[0].role is ChatRole.SYSTEM
+    assert "You are the AI assistant for AI-Knowledge-Hub." in (
+        provider.last_request.messages[0].content
+    )
+    assert provider.last_request.messages[1].role is ChatRole.USER
+    assert provider.last_request.messages[1].content == "Explain AI Gateway."
 
 
 @pytest.mark.parametrize(
@@ -320,6 +325,33 @@ def test_chat_maps_service_errors_to_stable_http_responses(
         "code": expected_code,
     }
     assert str(error) not in response.text
+
+
+def test_chat_maps_prompt_error_to_safe_internal_http_response(
+    authenticated_client: TestClient,
+) -> None:
+    error = PromptConfigurationError(
+        "private prompt path and template content must not be exposed"
+    )
+    chat_service = Mock(spec=ChatService)
+    chat_service.chat = AsyncMock(side_effect=error)
+    app.dependency_overrides[get_chat_service] = lambda: chat_service
+
+    try:
+        response = authenticated_client.post(
+            "/ai/chat",
+            json={"messages": [{"content": "private request content"}]},
+        )
+    finally:
+        app.dependency_overrides.pop(get_chat_service, None)
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {
+        "detail": "AI service failed to process the request.",
+        "code": "ai_internal_error",
+    }
+    assert str(error) not in response.text
+    chat_service.chat.assert_awaited_once()
 
 
 def test_stream_chat_requires_access_token(client: TestClient) -> None:
@@ -493,6 +525,39 @@ def test_stream_chat_preserves_http_error_before_first_event(
     assert response.json() == {
         "detail": expected_detail,
         "code": expected_code,
+    }
+    assert str(error) not in response.text
+    assert closed == [True]
+
+
+def test_stream_chat_maps_prompt_error_to_json_before_first_event(
+    authenticated_client: TestClient,
+) -> None:
+    error = PromptConfigurationError(
+        "private prompt path and template content must not be exposed"
+    )
+    closed: list[bool] = []
+    chat_service = Mock(spec=ChatService)
+    chat_service.stream.return_value = _service_stream(
+        (),
+        error=error,
+        closed=closed,
+    )
+    app.dependency_overrides[get_chat_service] = lambda: chat_service
+
+    try:
+        response = authenticated_client.post(
+            "/ai/chat/stream",
+            json={"messages": [{"content": "private request content"}]},
+        )
+    finally:
+        app.dependency_overrides.pop(get_chat_service, None)
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "detail": "AI service failed to process the request.",
+        "code": "ai_internal_error",
     }
     assert str(error) not in response.text
     assert closed == [True]

@@ -1,0 +1,4 @@
+# required_variables 中的名称必须与 template.md 的占位符完全一致。
+prompt_key = "translation"
+version = "v1"
+required_variables = ["source_language", "target_language", "tone"]

@@ -18,17 +18,29 @@ from app.ai.provider import (
     FinishReason,
     TokenUsage,
 )
+from app.ai.prompt_center import PromptCenter, RenderedPrompt
 from app.schemas.ai import ChatRequestSchema
 from app.services.chat_service import ChatService
 
 REQUEST_UUID = UUID("00000000-0000-0000-0000-000000000001")
 REQUEST_ID = str(REQUEST_UUID)
+SYSTEM_PROMPT = "controlled system prompt"
 
 
 def _gateway(result: GatewayChatResult) -> Mock:
     gateway = Mock(spec=AIGateway)
     gateway.generate = AsyncMock(return_value=result)
     return gateway
+
+
+def _prompt_center() -> Mock:
+    prompt_center = Mock(spec=PromptCenter)
+    prompt_center.render.return_value = RenderedPrompt(
+        prompt_key="assistant",
+        version="v1",
+        content=SYSTEM_PROMPT,
+    )
+    return prompt_center
 
 
 def test_chat_maps_public_request_and_gateway_result_without_logging_content(
@@ -50,7 +62,8 @@ def test_chat_maps_public_request_and_gateway_result_without_logging_content(
             usage=usage,
         )
     )
-    service = ChatService(gateway)
+    prompt_center = _prompt_center()
+    service = ChatService(gateway, prompt_center)
     request = ChatRequestSchema(
         messages=[
             {"content": user_content},
@@ -73,6 +86,7 @@ def test_chat_maps_public_request_and_gateway_result_without_logging_content(
         ChatRequest(
             request_id=REQUEST_ID,
             messages=(
+                ChatMessage(role=ChatRole.SYSTEM, content=SYSTEM_PROMPT),
                 ChatMessage(role=ChatRole.USER, content=user_content),
                 ChatMessage(role=ChatRole.USER, content="second user message"),
             ),
@@ -80,6 +94,11 @@ def test_chat_maps_public_request_and_gateway_result_without_logging_content(
             temperature=0.7,
             max_output_tokens=256,
         )
+    )
+    prompt_center.render.assert_called_once_with(
+        prompt_key="assistant",
+        version="v1",
+        variables={},
     )
     assert response.model_dump(mode="json") == {
         "request_id": REQUEST_ID,
@@ -113,7 +132,8 @@ def test_chat_preserves_missing_usage_as_null() -> None:
             usage=None,
         )
     )
-    service = ChatService(gateway)
+    prompt_center = _prompt_center()
+    service = ChatService(gateway, prompt_center)
 
     with patch("app.services.chat_service.uuid4", return_value=REQUEST_UUID):
         response = asyncio.run(
@@ -136,7 +156,8 @@ def test_chat_propagates_gateway_error_without_logging_success(
     gateway.generate = AsyncMock(
         side_effect=AIProviderTimeoutError("safe gateway timeout")
     )
-    service = ChatService(gateway)
+    prompt_center = _prompt_center()
+    service = ChatService(gateway, prompt_center)
     request = ChatRequestSchema(messages=[{"content": "private user content"}])
 
     with caplog.at_level(logging.INFO, logger="ai_knowledge_hub"):
@@ -199,7 +220,8 @@ def test_stream_maps_public_request_and_yields_gateway_events() -> None:
     closed: list[bool] = []
     gateway = Mock(spec=AIGateway)
     gateway.stream.return_value = _gateway_stream(events, closed=closed)
-    service = ChatService(gateway)
+    prompt_center = _prompt_center()
+    service = ChatService(gateway, prompt_center)
     request = ChatRequestSchema(
         messages=[
             {"content": user_content},
@@ -218,6 +240,7 @@ def test_stream_maps_public_request_and_yields_gateway_events() -> None:
         ChatRequest(
             request_id=REQUEST_ID,
             messages=(
+                ChatMessage(role=ChatRole.SYSTEM, content=SYSTEM_PROMPT),
                 ChatMessage(role=ChatRole.USER, content=user_content),
                 ChatMessage(role=ChatRole.USER, content="second message"),
             ),
@@ -225,6 +248,11 @@ def test_stream_maps_public_request_and_yields_gateway_events() -> None:
             temperature=0.7,
             max_output_tokens=256,
         )
+    )
+    prompt_center.render.assert_called_once_with(
+        prompt_key="assistant",
+        version="v1",
+        variables={},
     )
     assert closed == [True]
 
@@ -238,7 +266,7 @@ def test_stream_propagates_gateway_error_and_closes_gateway_stream() -> None:
         error=error,
         closed=closed,
     )
-    service = ChatService(gateway)
+    service = ChatService(gateway, _prompt_center())
     request = ChatRequestSchema(messages=[{"content": "private content"}])
 
     with pytest.raises(AIProviderTimeoutError) as error_info:
@@ -252,7 +280,7 @@ def test_stream_propagates_cancellation_and_closes_gateway_stream() -> None:
     closed: list[bool] = []
     gateway = Mock(spec=AIGateway)
     gateway.stream.return_value = _blocking_gateway_stream(closed)
-    service = ChatService(gateway)
+    service = ChatService(gateway, _prompt_center())
     request = ChatRequestSchema(messages=[{"content": "private content"}])
 
     async def consume_and_cancel() -> None:
@@ -284,7 +312,7 @@ def test_stream_aclose_closes_gateway_stream() -> None:
         ),
         closed=closed,
     )
-    service = ChatService(gateway)
+    service = ChatService(gateway, _prompt_center())
     request = ChatRequestSchema(messages=[{"content": "private content"}])
 
     async def consume_and_close() -> None:
