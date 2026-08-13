@@ -12,6 +12,12 @@ from app.ai.exceptions import (
     AIProviderTimeoutError,
     AIProviderUnavailableError,
 )
+from app.ai.prompt_center import (
+    PromptConfigurationError,
+    PromptNotFoundError,
+    PromptVariableError,
+    PromptVersionNotFoundError,
+)
 from app.api.exception_handlers import (
     PublicAIError,
     map_ai_error,
@@ -20,7 +26,7 @@ from app.api.exception_handlers import (
 from app.schemas.ai import AIErrorCode
 
 
-def _client_raising(error: AIError) -> TestClient:
+def _client_raising(error: Exception) -> TestClient:
     app = FastAPI()
     register_exception_handlers(app)
 
@@ -184,4 +190,35 @@ def test_ai_error_handler_uses_safe_fallback_for_unknown_domain_error() -> None:
         "/ai/chat",
         "ai_internal_error",
         "FutureAIError",
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PromptNotFoundError("secret prompt key: assistant"),
+        PromptVersionNotFoundError("secret version: v9"),
+        PromptConfigurationError("secret path: /private/prompts/template.md"),
+        PromptVariableError("secret variable value: private content"),
+    ],
+)
+def test_prompt_error_handler_returns_safe_internal_error(
+    error: Exception,
+) -> None:
+    client = _client_raising(error)
+
+    with patch("app.api.exception_handlers.logger") as logger:
+        response = client.post("/ai/chat")
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {
+        "detail": "AI service failed to process the request.",
+        "code": "ai_internal_error",
+    }
+    assert str(error) not in response.text
+    logger.error.assert_called_once_with(
+        "ai.prompt.failed method=%s path=%s error_type=%s",
+        "POST",
+        "/ai/chat",
+        type(error).__name__,
     )

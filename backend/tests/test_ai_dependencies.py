@@ -1,6 +1,7 @@
 from unittest.mock import Mock, patch
 
 from app.ai.gateway import AIGateway
+from app.ai.prompt_center import PromptCenter
 from app.api.dependencies import get_ai_gateway, get_chat_service
 from app.core.config import settings
 
@@ -24,11 +25,12 @@ def test_get_ai_gateway_wires_settings_without_creating_provider() -> None:
     assert gateway is gateway_type.return_value
 
 
-def test_get_chat_service_uses_injected_gateway() -> None:
+def test_get_chat_service_uses_injected_gateway_and_prompt_center() -> None:
     gateway = Mock(spec=AIGateway)
+    prompt_center = Mock(spec=PromptCenter)
 
     with patch("app.api.dependencies.ChatService") as service_type:
-        service = get_chat_service(gateway)
+        service = get_chat_service(gateway, prompt_center)
 
-    service_type.assert_called_once_with(gateway)
+    service_type.assert_called_once_with(gateway, prompt_center)
     assert service is service_type.return_value

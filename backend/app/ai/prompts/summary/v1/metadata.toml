@@ -1,0 +1,4 @@
+# 这三个字段是 Prompt Center 当前允许的完整元数据契约。
+prompt_key = "summary"
+version = "v1"
+required_variables = ["language", "style"]
