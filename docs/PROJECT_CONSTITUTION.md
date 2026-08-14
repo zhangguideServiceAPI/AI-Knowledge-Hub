@@ -168,11 +168,11 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.7 Prompt Center
+Current Sprint: Sprint 4 AI Gateway (completed)
+Current Story: Sprint 4 closeout complete
 Current Goal:
-  - Add versioned and auditable system prompts at the ChatService boundary
-  - Preserve strict template variables and controlled message roles
+  - Preserve the completed AI Gateway boundary
+  - Prepare Sprint 5 Knowledge / RAG without bypassing File Resource or AI Gateway
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -187,11 +187,16 @@ Completed:
   - Cancellable AIGateway and ChatService streaming boundaries
   - Authenticated POST /ai/chat/stream with delta, usage, done and error semantics
   - First-event prefetch, ASGI disconnect race and end-to-end stream cleanup
+  - File-based Prompt Center, strict rendering, preload cache and versioned Prompt assets
+  - ChatService Prompt integration, controlled System Message and safe Prompt error mapping
   - Real Provider vertical verification through POST /ai/chat
   - Safe Provider error translation and opt-in real non-stream/stream tests
+  - ChatUsage Model, Migration, Repository and short terminal transactions
+  - Non-stream and Streaming success/failed/cancelled Usage with Latency and TTFT
+  - Optional Decimal cost snapshots with currency and pricing version
+  - ADR-0025 through ADR-0029 and Sprint-level lifecycle verification
 
 Not Started:
-  - Prompt Center and Usage persistence
   - Knowledge / RAG implementation
 ```
 
@@ -218,6 +223,9 @@ Not Started:
 - AI 业务层只依赖项目的稳定 Chat 契约；Provider SDK 类型、真实模型名和凭据不得跨过 Provider 边界。
 - ChatProvider 只抽象文本生成；Embedding、Rerank、Image 和 Tool Calling 按真实能力使用独立 Protocol。
 - Provider Streaming 只产生 `delta / usage / done`，失败通过领域异常上抛；公共 SSE `error` 由上层翻译。
+- AI Usage 由 ChatService 在终态协调，通过独立短事务写入；Streaming 期间不持有数据库事务。
+- Provider 未返回可信 Token 时保存 `NULL`；成本只在价格和输入/输出 Token 完整时保存 Decimal 价格版本快照。
+- Usage 和普通日志不保存 Message、Prompt 正文、模型回答、Secret 或 Provider 原始异常。
 - 坚持 Documentation First 和 ADR，不因更换 AI 助手而反复建议更换既定框架。
 
 具体决策背景和取舍以 `docs/architecture/adr/` 中已接受的 ADR 为准。

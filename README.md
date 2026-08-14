@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 4 - AI Gateway，Story 4.5 AIGateway 与非流式 Chat API**
+当前阶段：**Sprint 4 - AI Gateway 已完成，下一阶段为 Sprint 5 Knowledge / RAG**
 
 已经完成：
 
@@ -45,8 +45,15 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - Provider 契约、异常与 Fake Provider 的 22 个测试
 - 多 Provider 配置注册表、按 Provider Key 缓存的 Factory
 - OpenAI-compatible 真实 Adapter、错误清理和非流式/流式真实联调
+- AIGateway 模型别名、Context Window、Timeout、有限 Retry 和稳定错误映射
+- 认证非流式 `/ai/chat` 与 SSE `/ai/chat/stream`，支持断连取消和完整资源关闭
+- 文件型 Prompt Center、严格变量、显式版本和受控 System Message
+- Chat Usage 成功/失败/取消终态、Latency、TTFT 和可选 Decimal 成本快照
+- ADR-0025 至 ADR-0029，以及 Fake、Contract、API、Streaming 和真实 Provider 测试
 
-Sprint 1 Authentication、Sprint 2 Session & Identity Management 和 Sprint 3 Storage & Resource Management 已完成。Sprint 4 已完成 Story 4.0 至 4.4；Gateway、ChatService、AI Router、Prompt Center 和 Usage 持久化尚未实现。
+Sprint 1 Authentication、Sprint 2 Session & Identity Management、Sprint 3 Storage &
+Resource Management 和 Sprint 4 AI Gateway 已完成。Sprint 5 将连接 File Resource 与
+AI Gateway，进入 Knowledge / RAG；当前还没有实现解析、Chunk、Embedding 或检索。
 
 ## 技术栈
 
@@ -206,6 +213,20 @@ MinIO 已启动时显式运行真实对象存储测试：
 ```bash
 RUN_MINIO_INTEGRATION_TESTS=1 uv run pytest -m integration -q
 ```
+
+真实 AI Provider 测试必须额外提供内部 Provider Key 和真实模型名。测试固定为两个
+短请求，并把单次输出限制为 16 Token：
+
+```bash
+RUN_AI_INTEGRATION_TESTS=1 \
+AI_INTEGRATION_PROVIDER_KEY=primary \
+AI_INTEGRATION_MODEL=<provider-model> \
+uv run pytest -q tests/integration/test_openai_compatible_provider_integration.py \
+  -k 'provider_generate or provider_stream'
+```
+
+API Key 与 Base URL 只从 `backend/.env` 的 `AI_PROVIDERS` 读取，禁止写入命令、测试
+文件、日志或 Git。普通测试不会访问真实 Provider。
 
 ## 停止本地服务
 

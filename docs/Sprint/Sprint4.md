@@ -2,16 +2,16 @@
 
 ## 状态
 
-Sprint 4 正在实施。Story 4.0 至 4.8 已完成：Provider 稳定契约、领域异常、
+Sprint 4 已完成。Story 4.0 至 4.9 已建立 Provider 稳定契约、领域异常、
 Fake Provider、配置注册表、Factory、OpenAI-compatible Adapter、AIGateway、
 ChatService、非流式 `/ai/chat` 和流式 `/ai/chat/stream` 已有代码与纵向验证；Prompt
 Center、Usage 终态和成本快照已接入 ChatService。
 
 ```text
-Current Sprint: Sprint 4 AI Gateway
-Current Story: Story 4.9 Lifecycle, Testing & Sprint Review
-Current Goal: 完成端到端生命周期验收与 Sprint 收尾
-Current Step: Step 1 - 执行全量测试、安全审查和文档同步
+Current Sprint: Sprint 4 AI Gateway (completed)
+Current Story: Story 4.9 completed
+Current Goal: 保持 AI Gateway 稳定边界，为 Sprint 5 Knowledge / RAG 提供模型调用能力
+Current Step: Sprint closeout complete
 ```
 
 | Story | 状态 | 已形成的证据 |
@@ -25,7 +25,7 @@ Current Step: Step 1 - 执行全量测试、安全审查和文档同步
 | 4.6 SSE Streaming | 已完成 | Gateway/Service Stream、认证 SSE Router、首 Event 预取、ASGI 断连竞速、错误终态、取消释放与纵向测试 |
 | 4.7 Prompt Center | 已完成 | 文件版本、严格变量、预加载缓存、受控 System Message 与 ADR-0028 |
 | 4.8 Usage & Observability | 已完成 | ChatUsage、Migration、Repository、三种终态、TTFT、成本快照与 ADR-0029 |
-| 4.9 Lifecycle, Testing & Sprint Review | 进行中 | 全链路、真实 Provider、回归、安全、Review 与 Sprint 收尾 |
+| 4.9 Lifecycle, Testing & Sprint Review | 已完成 | 全链路、真实 Provider、回归、安全、Review、独立 Commit 与 `sprint4` Tag |
 
 ## Sprint 定位
 
@@ -1093,6 +1093,41 @@ ChatService 应负责：
 - Code Review 综合评分达到 90 分及以上。
 - 创建 Sprint 收尾 Commit，并创建 Annotated Tag `sprint4`。
 
+### 完成证据
+
+- Fake/Gateway/API、断流、Retry、取消以及认证、文件、Health 故障隔离回归
+  `148 passed`。
+- 认证非流式与 Streaming Fake Provider 纵向链路均按公共 `request_id` 查询到成功
+  Usage，证明 Router -> Service -> Gateway -> Provider -> Repository 接线完成。
+- 真实 OpenAI-compatible Provider 只执行非流式与 Streaming 两个短请求，每次最多
+  16 输出 Token，结果 `2 passed, 1 deselected`；普通测试仍不访问网络。
+- 全量离线测试 `611 passed, 18 skipped`；Ruff Check、Ruff Format Check、
+  `git diff --check` 与 Alembic Head `575175576c72` 通过。
+- Secret 扫描未发现已跟踪 `.env`、私钥或真实 API Key；错误响应、日志与 Usage 的
+  内容数据最小化测试通过。
+
+### Code Review
+
+```text
+Architecture       5/5
+Dependency         5/5
+Naming             5/5
+Maintainability    4/5
+Performance        5/5
+Security           5/5
+Testing            5/5
+Documentation      5/5
+
+Overall            97/100
+```
+
+Review 通过，无阻断问题。同步 SQLAlchemy Usage 短事务已通过 `asyncio.to_thread()`
+移出 Event Loop；Usage Session 工厂可注入，API 测试不会误连开发数据库。
+
+仍存在的非阻断边界：成本是配置价格下的估算而非 Provider 账单；真实 Provider 测试
+受外部网络和服务状态影响，因此默认跳过；跨系统 Metrics、Tracing、Dashboard、预算、
+配额与告警仍属于后续平台 Sprint。
+
 ## 测试矩阵
 
 | 层级 | 重点 |
@@ -1174,20 +1209,20 @@ Sprint 4 至少覆盖以下核心问题：
 - [x] 认证用户可以完成非流式 Chat。
 - [x] 认证用户可以接收标准 SSE 流并识别明确终态。
 - [x] Provider 可以通过配置切换，ChatService 不修改。
-- [ ] Prompt 可以通过 Key 和 Version 严格渲染。
-- [ ] 成功、失败和取消请求都有可查询 Usage 记录。
+- [x] Prompt 可以通过 Key 和 Version 严格渲染。
+- [x] 成功、失败和取消请求都有可查询 Usage 记录。
 
 ### 工程
 
-- [ ] Router、Service、Gateway、Provider 和 Repository 职责清晰。
+- [x] Router、Service、Gateway、Provider 和 Repository 职责清晰。
 - [x] Provider SDK 类型和原始事件不泄露到业务与客户端。
 - [x] Timeout、Retry、错误、取消和资源释放行为完成。
-- [ ] Secret、Message、Prompt 和回答正文不进入日志或 Usage 表。
-- [ ] Migration Upgrade/Downgrade 通过。
-- [ ] Unit、Contract、API、Streaming、真实 Provider 和纵向测试通过。
-- [ ] README、Sprint、API、Architecture、ADR 和面试题同步。
-- [ ] Code Review 综合评分达到 90 分及以上。
-- [ ] 每个 Story 有独立 Commit，Sprint 有收尾 Commit 和 `sprint4` Tag。
+- [x] Secret、Message、Prompt 和回答正文不进入日志或 Usage 表。
+- [x] Migration Upgrade/Downgrade 通过。
+- [x] Unit、Contract、API、Streaming、真实 Provider 和纵向测试通过。
+- [x] README、Sprint、API、Architecture、ADR 和面试题同步。
+- [x] Code Review 综合评分达到 90 分及以上。
+- [x] 每个 Story 有独立 Commit，Sprint 有收尾 Commit 和 `sprint4` Tag。
 
 ## 与 Sprint 3 的衔接
 
