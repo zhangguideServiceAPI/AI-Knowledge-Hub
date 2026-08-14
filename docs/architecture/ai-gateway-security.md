@@ -2,8 +2,9 @@
 
 ## 文档状态
 
-Story 4.2 安全边界已确认。本文是后续真实 Provider、API、Prompt 和 Usage 实现的
-约束；当前 Fake Provider 不读取 Secret、不访问网络，也不代表公共 AI API 已开放。
+Sprint 4 安全边界与实现已完成。真实 Provider、认证 Chat API、Prompt Center 和
+Usage 均遵守本文约束；Fake Provider 继续作为不读取 Secret、不访问网络的默认测试
+替身。
 
 ## 信任边界
 
@@ -79,8 +80,8 @@ HTTP 状态或公共 SSE `error`。
 - Provider 原始异常、原始请求响应和 SSE Chunk。
 - Usage 表中的 API Key、Message、Prompt、完整回答或原始错误。
 
-`user_id` 可以作为受控业务审计字段保存在 Usage；应用日志是否记录必须遵守项目
-日志策略并避免对外输出。Provider 永远不需要知道 `user_id`。
+`user_id` 只作为受控业务审计字段保存在 Usage，不进入普通 AI 日志或公共响应。
+Provider 永远不需要知道 `user_id`。
 
 ## Streaming 与取消安全
 
@@ -111,4 +112,6 @@ HTTP 状态或公共 SSE `error`。
 - [AI Gateway Flow](ai-gateway-flow.md)
 - [ADR-0025](adr/ADR-0025-use-ai-gateway-boundary.md)
 - [ADR-0027](adr/ADR-0027-streaming-retry-and-terminal-state.md)
+- [ADR-0028](adr/ADR-0028-file-based-prompt-center.md)
+- [ADR-0029](adr/ADR-0029-usage-cost-snapshot-and-data-minimization.md)
 - [Sprint 4](../Sprint/Sprint4.md)

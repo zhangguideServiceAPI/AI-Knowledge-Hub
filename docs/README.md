@@ -9,8 +9,8 @@ Completed: Sprint 0 Foundation
 Completed: Sprint 1 Authentication
 Completed: Sprint 2 Session & Identity
 Completed: Sprint 3 Storage & Resource Management
-Completed: Sprint 4 Story 4.0-4.3 Design & Provider Contract
-Current:   Sprint 4 AI Gateway - Story 4.4 Real Provider
+Completed: Sprint 4 AI Gateway, Prompt Center, Streaming & Usage
+Current:   Sprint 4 closeout complete
 Next:      Sprint 5 Knowledge / RAG
 ```
 
@@ -23,7 +23,7 @@ Next:      Sprint 5 Knowledge / RAG
 1. [项目宪法](PROJECT_CONSTITUTION.md)：最高学习与工程约束。
 2. [项目愿景](项目愿景.md)：产品方向、目标用户和成功标准。
 3. [AI 协作规范](AI协作规范.md)：开发者与 AI 的协作方式。
-4. [当前 Sprint 4](Sprint/Sprint4.md)：当前目标、边界、Story 和小步骤。
+4. [已完成 Sprint 4](Sprint/Sprint4.md)：AI Gateway 目标、边界、Story 和验收证据。
 
 ### 修改代码前追加阅读
 
@@ -92,9 +92,11 @@ Next:      Sprint 5 Knowledge / RAG
 - [ADR-0025：AI Gateway 边界](architecture/adr/ADR-0025-use-ai-gateway-boundary.md)
 - [ADR-0026：Capability-specific ChatProvider](architecture/adr/ADR-0026-use-capability-specific-chat-provider.md)
 - [ADR-0027：Streaming、Retry 与错误终态](architecture/adr/ADR-0027-streaming-retry-and-terminal-state.md)
+- [ADR-0028：文件型 Prompt Center](architecture/adr/ADR-0028-file-based-prompt-center.md)
+- [ADR-0029：Usage、成本快照与数据最小化](architecture/adr/ADR-0029-usage-cost-snapshot-and-data-minimization.md)
 
-当前已实现 Provider 契约、领域异常和 Fake Provider。Factory、真实 Provider、
-AIGateway、ChatService、AI Router、Prompt Center 和 Usage 持久化仍属于后续 Story。
+当前已实现 Provider 契约、真实 Adapter、AIGateway、ChatService、非流式与 SSE Router、
+文件型 Prompt Center，以及成功/失败/取消 Usage、TTFT 和可选成本快照。
 
 ## Sprint 记录
 
@@ -102,7 +104,7 @@ AIGateway、ChatService、AI Router、Prompt Center 和 Usage 持久化仍属于
 - [Sprint 1：Authentication（已完成）](Sprint/Sprint1.md)
 - [Sprint 2：Session & Identity（已完成）](Sprint/Sprint2.md)
 - [Sprint 3：Storage & Resource Management（已完成）](Sprint/Sprint3.md)
-- [Sprint 4：AI Gateway（Story 4.4 进行中）](Sprint/Sprint4.md)
+- [Sprint 4：AI Gateway（已完成）](Sprint/Sprint4.md)
 - [Sprint 长期路线](Sprint/Sprint长期路线.md)
 
 历史 Sprint 是阶段交付证据。即使其中保留了当时的“候选”或“下一步”表述，也不应改写为新 Sprint 的当前计划；当前状态以本页、项目宪法和当前 Sprint 为准。

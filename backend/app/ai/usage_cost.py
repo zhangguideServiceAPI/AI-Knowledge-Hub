@@ -36,8 +36,8 @@ def calculate_cost_snapshot(
     input_cost = Decimal(usage.input_tokens) * pricing.input_price_per_million_tokens
     output_cost = Decimal(usage.output_tokens) * pricing.output_price_per_million_tokens
     estimated_cost = ((input_cost + output_cost) / _TOKENS_PER_MILLION).quantize(
-        _COST_SCALE,
-        rounding=ROUND_HALF_UP,
+        _COST_SCALE,  # 最多保留小数点后 10 位
+        rounding=ROUND_HALF_UP,  # 使用四舍五入
     )
 
     return CostSnapshot(

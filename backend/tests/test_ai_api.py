@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from fastapi import Request, status
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy.orm import Session
 
 from app.ai.exceptions import (
     AIError,
@@ -30,7 +31,10 @@ from app.ai.providers.fake import FakeChatProvider
 from app.ai.prompt_center import PromptConfigurationError
 from app.api.dependencies import get_ai_gateway, get_chat_service, get_current_user
 from app.core.config import AIModelConfig
+from app.db.repositories.chat_usage_repository import ChatUsageRepository
 from app.main import app
+from app.models.usage import ChatUsageMode, ChatUsageStatus
+from app.models.user import User
 from app.schemas.ai import ChatRequestSchema, ChatResponseSchema
 from app.schemas.user import UserResponse
 from app.services.chat_service import ChatService
@@ -152,7 +156,16 @@ def test_chat_requires_access_token(client: TestClient) -> None:
 
 def test_chat_runs_authenticated_request_through_gateway_and_fake_provider(
     authenticated_client: TestClient,
+    session: Session,
 ) -> None:
+    session.add(
+        User(
+            id=42,
+            email="ai-api-usage@example.com",
+            password_hash="hashed-password",
+        )
+    )
+    session.commit()
     usage = TokenUsage(
         input_tokens=6,
         output_tokens=9,
@@ -225,6 +238,15 @@ def test_chat_runs_authenticated_request_through_gateway_and_fake_provider(
     )
     assert provider.last_request.messages[1].role is ChatRole.USER
     assert provider.last_request.messages[1].content == "Explain AI Gateway."
+
+    persisted_usage = ChatUsageRepository(session).get_by_request_id(
+        response_data["request_id"]
+    )
+    assert persisted_usage is not None
+    assert persisted_usage.user_id == 42
+    assert persisted_usage.request_mode == ChatUsageMode.NON_STREAM.value
+    assert persisted_usage.status == ChatUsageStatus.SUCCESS.value
+    assert persisted_usage.total_tokens == 15
 
 
 @pytest.mark.parametrize(
@@ -629,7 +651,16 @@ def test_stream_chat_yields_safe_sse_error_after_first_event(
 
 def test_stream_chat_runs_authenticated_request_through_fake_provider(
     authenticated_client: TestClient,
+    session: Session,
 ) -> None:
+    session.add(
+        User(
+            id=42,
+            email="ai-stream-usage@example.com",
+            password_hash="hashed-password",
+        )
+    )
+    session.commit()
     events: tuple[ChatEvent, ...] = (
         ChatDelta(request_id="request-1", content="Gateway"),
         ChatDelta(request_id="request-1", content=" stream"),
@@ -700,6 +731,13 @@ def test_stream_chat_runs_authenticated_request_through_fake_provider(
     assert provider.last_request is not None
     assert provider.last_request.request_id in request_ids
     assert provider.last_request.provider_model == "fake-model"
+
+    persisted_usage = ChatUsageRepository(session).get_by_request_id("request-1")
+    assert persisted_usage is not None
+    assert persisted_usage.user_id == 42
+    assert persisted_usage.request_mode == ChatUsageMode.STREAM.value
+    assert persisted_usage.status == ChatUsageStatus.SUCCESS.value
+    assert persisted_usage.total_tokens == 6
 
 
 def test_stream_chat_closes_service_stream_when_cancelled_before_first_event(
