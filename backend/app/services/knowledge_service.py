@@ -115,7 +115,7 @@ class KnowledgeService:
 
         return knowledge_base
 
-    def ingest_file_to_base(
+    async def ingest_file_to_base(
         self,
         *,
         owner_id: int,
@@ -127,12 +127,13 @@ class KnowledgeService:
         components: KnowledgeIndexingComponents,
     ) -> KnowledgeIngestionResult:
         """
-        完成用户“上传文件到知识库”的整条同步业务流程。
+        完成用户“上传文件到知识库”的整条同步索引业务流程。
 
         输入是用户、目标知识库、上传文件及服务器组装的服务组件；依次创建
-        FileResource、KnowledgeDocument、pending DocumentVersion 和多个 Chunk。
-        每个阶段独立提交，避免文件上传成功后因解析失败而丢失原文件；解析失败时
-        File 与 Document 会保留，供后续重新索引，而 Version/Chunk 不会写入。
+        FileResource、KnowledgeDocument、DocumentVersion 和多个 Chunk，再执行 Embedding
+        与 VectorStore 写入。返回 File、Document、Version 及 Chunk；每个阶段独立提交，
+        避免文件上传成功后因解析或索引失败而丢失原文件。索引失败保留 File、Document
+        和失败 Version，供后续重试，旧 active Version 不受影响。
         """
 
         # 必须先验证目标 Base，避免无效或越权 Base 导致上传成功却没有关联 Document 的孤立文件。
@@ -159,10 +160,17 @@ class KnowledgeService:
             document_id=document.id,
             components=components,
         )
+        indexed_version = await self.index_document_version(
+            owner_id=owner_id,
+            document_id=document.id,
+            document_version_id=version.id,
+            components=components,
+        )
         return KnowledgeIngestionResult(
             file_resource=file_resource,
             document=document,
-            version=version,
+            # 同一处理指纹被并发索引时，保留已经存在 Version 的真实当前状态。
+            version=indexed_version or version,
             chunks=chunks,
         )
 
