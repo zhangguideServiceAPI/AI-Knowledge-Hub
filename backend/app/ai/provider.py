@@ -47,6 +47,23 @@ class ChatResult:
 
 
 @dataclass(frozen=True)
+class ProviderEmbeddingRequest:
+    """发送给具体 Embedding Provider 的一批文本及 Provider 模型名。"""
+
+    request_id: str
+    texts: tuple[str, ...]
+    provider_model: str
+
+
+@dataclass(frozen=True)
+class ProviderEmbeddingResult:
+    """Provider 返回的、与请求文本保持相同顺序的一批数值向量。"""
+
+    request_id: str
+    vectors: tuple[tuple[float, ...], ...]
+
+
+@dataclass(frozen=True)
 class ChatDelta:
     request_id: str
     content: str
@@ -71,3 +88,15 @@ class ChatProvider(Protocol):
     async def generate(self, request: ProviderChatRequest) -> ChatResult: ...
 
     def stream(self, request: ProviderChatRequest) -> AsyncIterator[ChatEvent]: ...
+
+
+class EmbeddingProvider(Protocol):
+    """把一批文本转换为数值向量的 Provider 能力边界。"""
+
+    async def embed(
+        self,
+        request: ProviderEmbeddingRequest,
+    ) -> ProviderEmbeddingResult:
+        """调用 Provider 的 Embedding API，并返回与输入文本顺序一致的向量。"""
+
+        ...
