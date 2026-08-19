@@ -25,6 +25,10 @@ from .indexing import (
     ProcessingFingerprintInputError as ProcessingFingerprintInputError,
     build_processing_fingerprint as build_processing_fingerprint,
 )
+from .tokenization import (
+    TiktokenTokenCounter as TiktokenTokenCounter,
+    TokenizerNotAvailableError as TokenizerNotAvailableError,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -52,8 +56,10 @@ __all__ = [
     "ParsingError",
     "SourceLocator",
     "StructureAwareChunker",
+    "TiktokenTokenCounter",
     "TextParser",
     "TokenCounter",
+    "TokenizerNotAvailableError",
     "UnsupportedContentTypeError",
     "build_default_parser_registry",
     "build_processing_fingerprint",

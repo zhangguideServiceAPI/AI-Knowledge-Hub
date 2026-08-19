@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart==0.0.20",
     "redis==8.0.1",
     "sqlalchemy==2.0.36",
+    "tiktoken==0.12.0",
     "uvicorn[standard]==0.34.0",
 ]
 

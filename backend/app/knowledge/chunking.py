@@ -39,6 +39,14 @@ class ChunkingConfig:
                 "Chunk overlap tokens must be less than maximum tokens."
             )
 
+    def fingerprint_payload(self) -> dict[str, int]:
+        """返回会改变 Chunk 边界的配置快照，供 processing_fingerprint 使用。"""
+
+        return {
+            "max_tokens": self.max_tokens,
+            "overlap_tokens": self.overlap_tokens,
+        }
+
 
 # ChunkDraft 是尚未写入 MySQL 的内存结果；KnowledgeService 将来会把它变成 DocumentChunk。
 @dataclass(frozen=True)
