@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：12 / 100
+正式完整答案：26 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -70,8 +70,11 @@ Sprint 2 面试答案：待根据现有代码、流程图和测试回填 10 道
 Sprint 3 项目与学习计划：已完成
 Sprint 3 面试答案：8 / 8，项目证据已同步
 
-Sprint 4 学习地图：已完成
-Sprint 4 面试答案：4 / 10，随 Story 4.0 至 4.9 逐步完成
+Sprint 4 项目实现：已完成
+Sprint 4 面试答案：10 / 10，项目证据已同步
+
+Sprint 5 项目实现：5.1 至 5.6 已完成，5.7 至 5.9 未开始
+Sprint 5 面试答案：8 / 12；检索、Citation、质量评估与 RAG 闭环题目待对应实现后补充
 ```
 
 不暂停当前 Sprint 去一次性补写 Sprint 1/2 的 20 道历史答案。Sprint 4 推进期间可以额外回填少量历史问题；新的 Sprint 4 面试题必须在对应 Story Review 时同步完成，避免继续产生欠账。
@@ -488,8 +491,8 @@ Readiness 还必须按配置有条件执行：Local 模式不访问 MinIO；MinI
 6. 为什么 Streaming 发出首个 Token 后不能自动重试？
 7. Timeout、Rate Limit、Context Too Long 和 Provider 5xx 应如何分类和映射？
 8. Prompt 为什么需要 Key、Version、严格变量校验和审计？
-9. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
-10. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
+9. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
+10. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
 
 限流、熔断、降级和多 Provider 自动故障转移可以作为系统设计追问，但 Sprint 4 只实现已经进入范围的 Timeout、有限 Retry、统一错误和 Usage，回答时必须区分当前证据与未来演进。
 
@@ -535,8 +538,53 @@ AI Gateway 用模型别名和项目自己的契约隔离这些变化，让 ChatS
 
 **掌握状态**
 
-`理解 / 能画`：已完成职责图、调用链和 ADR（2026-08-07）。
-`能讲 / 能写`：Provider 边界已实现，完整 Gateway 待 Story 4.5。
+`理解 / 能写`：Gateway、Factory、Adapter 和 ChatService 已完成（2026-08-14）。
+`能讲 / 能画`：待不看文档画出四层请求契约。
+
+### Q2. Adapter Pattern、Gateway 和简单 SDK Wrapper 有什么区别？
+
+**30 秒简答**
+
+Adapter 解决“如何把某厂商 SDK 转成项目协议”，Gateway 解决“本次业务调用选择什么模型、
+如何 Timeout/Retry 并返回稳定结果”，Wrapper 常常只是把 SDK 方法换一个名字。三者可以
+都很小，但职责不同；项目用 Factory 创建 Adapter，用 AIGateway 执行策略。
+
+**2 分钟完整回答**
+
+Adapter 的输入输出两端协议不同。例如 OpenAI-compatible Adapter 接受项目的
+`ProviderChatRequest`，内部构造 SDK 请求，再把原始响应、流事件和异常转换为
+`ChatResult`、`ChatEvent` 与 `ProviderError`。它不能决定业务默认模型，也不知道用户。
+
+Gateway 面向项目业务请求：解析 model alias，取得对应 Provider，应用总 Deadline、有限
+Retry、Context Window 校验，并屏蔽 SDK 类型。Factory 则只负责由 Settings 的 Provider Key
+构造或缓存具体 Adapter。简单 Wrapper 若只是 `sdk.chat()` 外再包一层，业务仍然要知道
+真实模型名、SDK Exception 和响应字段，无法形成可替换边界。
+
+**项目中的设计或代码证据**
+
+- `app/ai/providers/openai_compatible.py` 是厂商协议 Adapter。
+- `app/ai/factory.py` 根据 Provider Key 取得 Adapter；`app/ai/gateway.py` 处理模型策略。
+- `ChatService` 只构造项目 `ChatRequest`，不导入 SDK 类型。
+
+**为什么没有采用其他方案**
+
+- 不把 Factory、Gateway 和 Adapter 合为一个类，否则初始化、策略和协议转换会一起膨胀。
+- 不为当前单体拆独立 Gateway 微服务，暂无跨服务部署与独立扩容需求。
+
+**常见追问**
+
+- 模型 alias 为什么属于 Gateway，而不是 Router？
+- 新增 Anthropic Provider 时哪些层不应变化？
+
+**容易说错的地方**
+
+- Adapter 不是“所有业务调用的总入口”。
+- Factory 不等于动态路由策略，它只解决实例如何获得。
+
+**掌握状态**
+
+`理解 / 能写`：Adapter、Factory、Gateway 已完成（2026-08-10）。
+`能讲 / 能画`：待结合真实调用链口述复查。
 
 ### Q3. 为什么 Provider 接口应该按 Chat、Embedding 等 Capability 拆分？
 
@@ -578,10 +626,234 @@ Adapter 只能抛 `NotImplementedError` 或伪造实现，类型契约失去价�
 
 **掌握状态**
 
-`理解 / 能写`：已实现 ChatProvider、DTO、Fake 和 Contract Test（2026-08-07）。
-`能讲 / 能画`：待 Story 4.4 Review 时复述。
+`理解 / 能写`：Chat 与 Embedding 已分别使用独立 Provider/Gateway 边界（2026-08-19）。
+`能讲 / 能画`：待说明新增 Rerank 时为何不扩张 ChatProvider。
 
-### Q10. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
+### Q4. Message Role、Token、Context Window 和 Finish Reason 分别是什么？
+
+**30 秒简答**
+
+Role 表示消息在模型对话中的受控身份；Token 是模型处理文本的计量单位；Context Window
+限制本次输入和输出 Token 总量；Finish Reason 表示模型为何结束。它们都不是客户端可以
+任意伪造的业务字段，Service 和 Gateway 必须分别控制。
+
+**2 分钟完整回答**
+
+公共 Chat API 只接收用户正文，`ChatService` 固定把它转换为 `user` Message，并从 Prompt
+Center 生成受控 `system` Message，客户端不能提交任意 Role 覆盖系统策略。Gateway 在调用
+Provider 前估算输入 Token，并加上 `max_output_tokens` 与模型配置的 Context Window 比较；
+超限直接抛出稳定请求错误，避免无意义地调用外部模型。
+
+Finish Reason 是模型最终结果，例如正常停止或长度耗尽，不等于 HTTP 是否成功。Token Usage
+若 Provider 未可信返回则保持未知；不能把字符数、字节数或 `0` 冒充模型 Token。RAG 接入后
+Context 也必须进入同一个输入预算，而不是无限追加检索文本。
+
+**项目中的设计或代码证据**
+
+- `ChatService._build_gateway_request()` 创建受控 system/user Message。
+- `AIGateway._prepare_provider_call()` 校验输入估算与 `context_window_tokens`。
+- `ChatResult` / `ChatDone` 使用项目 `FinishReason` 与可选 `TokenUsage`。
+
+**为什么没有采用其他方案**
+
+- 不把 Role 直接暴露给客户端，避免用户伪造 system 指令。
+- 不用字节数替代 Token，中文、英文和模型 tokenizer 的比例不稳定。
+
+**常见追问**
+
+- RAG Context 应给用户问题预留多少输出 Token？
+- `length` Finish Reason 时业务应如何提示？
+
+**容易说错的地方**
+
+- Context Window 是输入和输出共同的总预算。
+- Finish Reason 不是 Provider 原始错误正文。
+
+**掌握状态**
+
+`理解 / 能写`：受控 Role、上下文校验和结果 DTO 已实现（2026-08-11）。
+`能讲 / 能画`：待用一次超长请求流程复述。
+
+### Q5. SSE、StreamingResponse 和 WebSocket 应如何选择？
+
+**30 秒简答**
+
+`StreamingResponse` 是 FastAPI 的逐段 HTTP 响应能力，SSE 是建立在 HTTP 流上的事件格式，
+适合服务端连续推送模型 Delta；WebSocket 适合双方都需要持续主动发送的双向会话。当前聊天
+输出是单向模型流，所以项目用 SSE，外层用 `StreamingResponse` 承载。
+
+**2 分钟完整回答**
+
+模型生成的主要方向是服务端到客户端，且事件有明确类型：`delta`、`usage`、`done` 和
+流中 `error`。SSE 使用普通 HTTP、浏览器支持较好、代理配置简单，并允许客户端按事件名
+处理终态。`StreamingResponse` 本身只负责把迭代器写到 HTTP Body，不定义事件字段，因此
+项目在 `ai_sse.py` 将领域 `ChatEvent` 序列化为 SSE 格式。
+
+WebSocket 并非更高级的 SSE 替代品。当需要客户端中途频繁发控制命令、协作编辑、实时
+房间状态或双向二进制流时才值得增加连接协议、心跳和会话管理。当前取消通过 HTTP 断连
+传播即可，不为一个单向输出引入 WebSocket 生命周期复杂度。
+
+**项目中的设计或代码证据**
+
+- `POST /ai/chat/stream` 使用 `StreamingResponse`。
+- `app/api/ai_sse.py` 负责 SSE Event 编码；`ChatService.stream()` 产生领域事件。
+- ADR-0027 记录首事件、流中错误、断连和关闭规则。
+
+**为什么没有采用其他方案**
+
+- 不把原始 Provider Chunk 直接透传，避免客户端绑定厂商事件格式。
+- 不为单向生成使用 WebSocket，避免额外状态和运维边界。
+
+**常见追问**
+
+- SSE 断线重连会不会自动恢复模型流？
+- 哪些代理设置会影响流式 Flush？
+
+**容易说错的地方**
+
+- SSE 是 HTTP 响应格式，不是 WebSocket 的子协议。
+- StreamingResponse 不自动解决客户端断连和上游资源关闭。
+
+**掌握状态**
+
+`理解 / 能写`：SSE Router、Service Stream 与断连处理已实现（2026-08-12）。
+`能讲 / 能画`：待白板画出首事件与取消路径。
+
+### Q6. 为什么 Streaming 发出首个 Token 后不能自动重试？
+
+**30 秒简答**
+
+首个 Token 发出后客户端已经看到部分回答；重试会生成另一条回答并与旧片段拼接，造成
+重复内容和重复计费。项目只允许在首个事件前重试可恢复 Provider 错误，之后把错误转换
+为 SSE `error` 并关闭流。
+
+**2 分钟完整回答**
+
+非流式调用在 HTTP 响应开始前仍可安全地重试，因为客户端没有看到任何业务结果。流式
+调用不同：一旦 `yield` 了 Delta，HTTP Headers 和部分文本已经发送，Service 无法撤回。
+新的 Provider 调用即使成功，也不能知道旧模型已生成到哪个语义位置，因此不能可靠续写；
+用户会得到重复、矛盾或混合的答案，Usage 也会变得难以解释。
+
+`AIGateway.stream()` 用 `has_emitted_event` 记录是否输出过事件。仅在尚未输出、异常可重试
+且次数未超限时回退；输出后异常向上抛，由 SSE 层发送稳定 `error` 终态，并由资源关闭逻辑
+取消上游流。这是输出可见性决定幂等边界的例子。
+
+**项目中的设计或代码证据**
+
+- `app/ai/gateway.py` 的 `has_emitted_event` 与有限 Retry 条件。
+- `app/api/ai_sse.py` 将流中异常映射为公共 SSE error Event。
+- ADR-0027 记录该约束和取消语义。
+
+**为什么没有采用其他方案**
+
+- 不在客户端拼接两次 Provider 输出，因为无法证明语义连续。
+- 不宣称支持断点续传；当前 Provider 契约没有可恢复的生成游标。
+
+**常见追问**
+
+- 如果 Provider 支持 resume token，能否重试？
+- 首事件前收到 Usage Event 算不算已经可见输出？
+
+**容易说错的地方**
+
+- “网络失败可重试”必须区分响应是否已经对用户可见。
+- Retry 次数不是唯一条件，事件边界同样关键。
+
+**掌握状态**
+
+`理解 / 能写`：首事件前 Retry 与流中 Error 已实现（2026-08-12）。
+`能讲 / 能画`：待结合一次断连情景复述。
+
+### Q7. Timeout、Rate Limit、Context Too Long 和 Provider 故障如何分类？
+
+**30 秒简答**
+
+Context Too Long 和非法模型/参数是客户端请求问题，应稳定拒绝且不重试；Timeout、Rate
+Limit、Provider 不可用是外部暂时故障，可在输出前有限重试并映射为安全业务错误。Router
+只返回 HTTP/SSE，Gateway 负责归一化 Provider 细节。
+
+**2 分钟完整回答**
+
+错误分类的目的不是给每个 SDK 错误起新名字，而是决定调用方是否能修正、系统能否重试
+以及日志是否安全。Gateway 将 Provider Timeout、Rate Limit、Unavailable 转为项目
+`AIProvider...Error`；超过 Context Window、未配置模型或空请求为 `AIInvalid...Error`。
+只有可恢复 Provider 类错误，且仅在结果尚未可见时，才进入有限 Retry 和 Backoff。
+
+Service 和 Exception Handler 再把稳定领域错误映射为公共响应，不能泄露 Base URL、SDK
+异常正文或 Secret。总 Deadline 限制“初次调用 + 等待 + Retry”的总时间，避免每次重试
+都重新获得完整超时预算。
+
+**项目中的设计或代码证据**
+
+- `app/ai/exceptions.py` 定义稳定 AI 异常层次。
+- `AIGateway.generate()` / `stream()` 处理总 Deadline、Retry 与翻译。
+- API Exception Handler 提供不含 Provider 细节的 HTTP/SSE 响应。
+
+**为什么没有采用其他方案**
+
+- 不把 Provider HTTP 状态码直接暴露为业务契约。
+- 不对非法参数和 Context 超限自动重试，重试不会改变输入。
+
+**常见追问**
+
+- 429 应立即重试还是排队？
+- 总 Deadline 与单次 Provider Timeout 如何共同配置？
+
+**容易说错的地方**
+
+- 5xx 不一定意味着调用一定没有产生结果，流式场景更要谨慎。
+- Rate Limit 是服务端限额，不等于用户自己的请求校验错误。
+
+**掌握状态**
+
+`理解 / 能写`：统一异常、Deadline 和有限 Retry 已实现（2026-08-11）。
+`能讲`：待从客户端可修复性角度口述分类。
+
+### Q8. Prompt 为什么需要 Key、Version、严格变量校验和审计？
+
+**30 秒简答**
+
+Prompt 是会改变模型行为的运行时资产。Key 标识用途，Version 固定可复现内容，严格变量
+校验防止漏填或多填，文件与 Git 历史提供审计。ChatService 选择受控 Prompt，客户端不
+提交任意 System Prompt。
+
+**2 分钟完整回答**
+
+把 Prompt 写死在 Service 会让改动和业务代码混在一起，无法回答某次请求使用了哪份指令。
+项目用 `assistant/v1` 目录保存模板与 metadata；PromptCenter 负责加载、缓存、验证变量
+并渲染，Service 只按明确 Key/Version 请求。变量必须与模板声明一致，未提供、空白或额外
+变量都会在进入模型前失败，避免悄悄输出错误指令。
+
+版本不是“随时覆盖同一个文件名”。已有 `v1` 的语义应稳定；需要调整时创建新版本，随后
+由业务显式切换。当前只实现文件与 Git 审计，不提前建设在线编辑、审批、灰度和 A/B 平台。
+
+**项目中的设计或代码证据**
+
+- `app/ai/prompt_center/center.py` 负责加载、严格渲染与缓存。
+- `app/ai/prompts/assistant/v1/` 是当前 Chat 使用的版本化资产。
+- ADR-0028 固化文件型 Prompt Center 和范围边界。
+
+**为什么没有采用其他方案**
+
+- 不允许 API 直接传 System Prompt，避免绕过受控策略。
+- 不在数据库建 Prompt CMS，当前缺少审批、权限和运营需求。
+
+**常见追问**
+
+- Prompt 改版如何回滚？
+- RAG Context 应作为模板变量还是用户 Message？
+
+**容易说错的地方**
+
+- Prompt Version 不等于模型版本。
+- 文件存储不自动等于完整审批与发布流程。
+
+**掌握状态**
+
+`理解 / 能写`：PromptCenter、版本目录和严格变量已实现（2026-08-13）。
+`能讲 / 能画`：待解释一次 Key/Version 到 ChatService 的调用链。
+
+### Q9. Fake Provider、Contract Test 和真实 Provider Integration Test 分别证明什么？
 
 **30 秒简答**
 
@@ -600,9 +872,11 @@ Fake Provider 是测试替身，可以预先配置 `ChatResult`、事件序列�
 
 **项目中的设计或代码证据**
 
-- Story 4.3 有 22 个 Provider、异常和 Fake 测试，默认不访问网络。
-- Fake 覆盖流前/流中错误、`aclose()`、任务取消和 `finally` 清理证据。
-- 真实 Adapter 和 Integration Test 尚未实现，属于 Story 4.4。
+- Fake Provider 覆盖成功、流前/流中错误、`aclose()`、任务取消和 `finally` 清理，默认
+  测试不访问网络。
+- `OpenAICompatibleChatProvider` 与 opt-in Integration Test 覆盖真实 SDK、认证、
+  非流式、Streaming 和 Usage 映射。
+- Sprint 4 Review 已执行离线回归与受控真实 Provider 纵向验证。
 
 **为什么没有采用其他方案**
 
@@ -621,10 +895,10 @@ Fake Provider 是测试替身，可以预先配置 `ChatResult`、事件序列�
 
 **掌握状态**
 
-`理解 / 能写`：Fake 与 22 个离线测试已完成（2026-08-07）。
-`能讲 / 能画`：真实 Integration 分层待 Story 4.4 完成后复查。
+`理解 / 能写`：Fake、Contract、API 与 opt-in Integration 分层均已实现（2026-08-14）。
+`能讲 / 能画`：待解释为什么真实测试不进入默认离线套件。
 
-### Q9. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
+### Q10. Token Usage、Latency、TTFT 和成本快照应该怎样记录？
 
 **30 秒简答**
 
@@ -678,18 +952,387 @@ pricing_version`。三者组成调用发生时的历史快照，以后修改价�
 **掌握状态**
 
 `理解 / 能写`：Usage、TTFT、三种终态、成本快照与短事务已实现（2026-08-13）。
-`能讲 / 能画`：Story 4.9 Sprint Review 时复查完整生命周期。
+`能讲 / 能画`：Sprint 4 Review 已完成；仍建议不看文档画出流式终态。
 
 ## Sprint 5: RAG
 
-重点问题范围：
+Sprint 5 当前只补充 5.1 至 5.6 已实现的知识入库问题。查询 Retrieval、Citation、质量
+评估和 RAG Chat 闭环仍在后续 Story，不能把设计目标写成已完成事实。
 
-- RAG 的完整数据和查询链路是什么？
-- Chunk Size、Overlap 和文档结构如何影响检索？
-- Embedding 是什么，向量相似度怎样理解？
-- Dense、Sparse 和 Hybrid Retrieval 如何选择？
-- Reranker、Metadata Filter 和 Query Rewrite 解决什么问题？
-- 如何评估 Retrieval 和最终回答质量？
+### Q1. RAG 的完整数据和查询链路是什么？
+
+**30 秒简答**
+
+RAG 有两条链路：入库将 File 解析、分块、Embedding 并索引；查询将用户问题向量化、按
+知识库过滤检索 Chunk、构造 Context，再交给 ChatService 和 AIGateway 生成带 Citation 的
+回答。当前项目已完成入库到 Qdrant，查询从 Story 5.7 开始实现。
+
+**2 分钟完整回答**
+
+入库链路的事实来源是 Sprint 3 的 FileResource。KnowledgeService 将 READY 文件登记为
+Document，按 Parser/Chunker/Embedding 配置产生 Version 和 Chunk；EmbeddingGateway 为
+Chunk 批量产生向量，VectorStore 写入 Qdrant，成功后 Version 才能成为 active。MySQL 保存
+所有权、原文、来源、状态和 Version，Qdrant 保存可再生向量与最小过滤 payload。
+
+查询链路不能直接让模型“读整个文件”。它应从一个已授权 KnowledgeBase 开始，将 Query
+用同一向量空间的 Embedding Model 转换为向量，在 Qdrant 得到 Top K，再由 MySQL 验证
+Chunk/Version/来源并压缩成预算内 Context。最后 ChatService 通过 PromptCenter/AIGateway
+生成回答，Citation 指回 File、页码或 Chunk。后半段尚未实现。
+
+**项目中的设计或代码证据**
+
+- `KnowledgeService.ingest_file_to_base()` 到 `index_document_version()` 已形成入库闭环。
+- `VectorStore` / `QdrantVectorStore` 隔离向量 SDK；ADR-0030 固化状态和一致性。
+- `ChatService -> AIGateway` 是将来 RAG Context 复用的既有生成边界。
+
+**为什么没有采用其他方案**
+
+- 不把原始 PDF 全量塞入 Prompt，Context Window 和成本都不可控。
+- 不在 Story 5.6 提前实现 Query Rewrite、Rerank 或 Agentic RAG。
+
+**常见追问**
+
+- 为什么查询也必须使用兼容的 Embedding Profile？
+- Citation 在检索层还是生成层产生？
+
+**容易说错的地方**
+
+- 当前项目尚未完成 Retrieval 和 RAG Answer，不能宣称端到端问答可用。
+- Qdrant 命中只是候选，业务来源和权限仍要回到 MySQL。
+
+**掌握状态**
+
+`理解 / 能画`：已完成入库链路与后续查询边界梳理（2026-08-19）。
+`能写`：入库完成；查询待 Story 5.7。
+
+### Q2. FileResource、KnowledgeDocument、DocumentVersion 和 DocumentChunk 如何分工？
+
+**30 秒简答**
+
+FileResource 是原始文件及存储生命周期；KnowledgeDocument 是“这个文件被加入某知识库”
+的管理关系；DocumentVersion 是一次固定 Parser、Chunker、Embedding 配置的索引快照；
+DocumentChunk 是 Version 下可检索的原文片段。原文件不变也可能因处理配置变化产生新
+Version。
+
+**2 分钟完整回答**
+
+把 File 当作知识本身会把对象存储、权限、解析和向量配置耦合。FileResource 属于 Sprint
+3，负责 owner、Object Key、SHA-256、READY/删除等生命周期；同一 File 可以在不同
+KnowledgeBase 建立不同 Document。Document 不承载一次解析的具体结果，因为 Parser
+版本、Chunk 参数或 Embedding 模型变化后需要保留新旧索引并支持回滚。
+
+因此 Version 保存 processing fingerprint、处理配置和状态；Chunk 保存内容、顺序、Token
+数和来源定位。Document 的 `active_version_id` 仅在某个 Version 成功 indexed 后更新，
+所以新版本失败时旧知识仍可检索。复合外键确保 active Version 一定属于同一个 Document。
+
+**项目中的设计或代码证据**
+
+- `models/knowledge_base.py`、`knowledge_document.py`、`document_version.py`、
+  `document_chunk.py` 定义四层模型与约束。
+- `build_processing_fingerprint()` 把文件摘要和处理配置变成幂等键。
+- ADR-0030 与 Migration 记录 Version、active 指针和索引状态。
+
+**为什么没有采用其他方案**
+
+- 不让 Chunk 直接外键 File，因为它需要绑定一次处理版本。
+- 不为每次重试创建新 Document，避免同一文件管理关系重复。
+
+**常见追问**
+
+- 为什么一个 File 能进入多个 KnowledgeBase？
+- active Version 是否必须是最大 Version Number？
+
+**容易说错的地方**
+
+- Document 不是文件 Bytes 的复制。
+- Version 不是“每个 Chunk 一条 Version”；一个 Version 对应多个 Chunk。
+
+**掌握状态**
+
+`理解 / 能写`：模型、约束和持久化流程已实现（2026-08-19）。
+`能讲 / 能画`：待画出 File 到 Version 的多对一/一对多关系。
+
+### Q3. Parser 为什么要把 PDF、TXT、Markdown 转成统一的 ParsedDocument/Block？
+
+**30 秒简答**
+
+不同格式的读取方式不同，但 Chunker 只需要“有序文本和来源定位”。Parser 负责把格式
+差异转换为统一 Block；Chunker 不需要知道 PDF 页、TXT 编码或 Markdown 标题的底层库。
+这让后续新增格式不会污染分块和索引业务。
+
+**2 分钟完整回答**
+
+PDF 通过页读取，Markdown 有标题结构，TXT 需要编码处理；若 Service 直接写多层
+`if content_type`，每个后续步骤都会被文件格式分支污染。ParserRegistry 依据受支持的
+Content-Type 选择 Parser，输出统一 ParsedDocument 和 ParsedBlock。Block 保留 text、
+block_index、source_locator 等信息，使 Chunker 能按原始顺序处理，未来 Citation 可以回答
+“来自哪一页或哪一段”。
+
+Parser 的版本也必须进入 Version 指纹。相同原文件若更换 pypdf 版本或修正解析逻辑，文本
+可能变化，旧向量不能被错误复用。Parser 只负责内容规范化，不负责权限、对象存储、分块、
+Embedding 或数据库写入。
+
+**项目中的设计或代码证据**
+
+- `knowledge/parsing.py` 定义 ParsedDocument / ParsedBlock 与 ParsingError。
+- `knowledge/parsers/` 提供 PDF、TXT、Markdown Parser 和 ParserRegistry。
+- `prepare_document_version()` 将 parser name/version 写入 fingerprint 与 Version。
+
+**为什么没有采用其他方案**
+
+- 不把 pypdf、编码和 Markdown 分支写入 Chunker。
+- 不只输出纯字符串，否则会失去页码等 Citation 所需来源。
+
+**常见追问**
+
+- 扫描版 PDF 没有文本时应如何演进？
+- Parser 升级为什么不覆盖旧 Version？
+
+**容易说错的地方**
+
+- Parser 不是把所有格式转成 PDF；它是转成项目的统一解析模型。
+- `parser_version` 是 Parser 实现版本，不是用户文件的版本号。
+
+**掌握状态**
+
+`理解 / 能写`：PDF、TXT、Markdown Provider 与统一解析契约已实现（2026-08-19）。
+`能讲`：待从一个 PDF 页到 Block 的路径复述。
+
+### Q4. 为什么 Chunk 按 Token 和结构切分，并使用 overlap，而不是按字节数截断？
+
+**30 秒简答**
+
+模型的输入限制按 Token，不按 UTF-8 字节。按字节会截断中文、单词或句子，也不能反映
+模型预算；结构化 Chunker 先保持标题/段落边界，再按 Token 上限切分，overlap 保留相邻
+语义以避免关键句刚好跨边界丢失。
+
+**2 分钟完整回答**
+
+Chunk 太大时，一次向量会混合多个主题，检索与 Prompt 预算变差；太小时上下文不足，
+答案需要的限定条件可能分散在相邻块。第一版使用可配置的 `max_tokens` 与
+`overlap_tokens`，并先消费 Parser 输出的结构 Block。只有某个 Block 超过上限时才继续
+按句子/Token 边界拆分，这比固定字符或字节切割更稳定。
+
+Overlap 使下一块带有上一块尾部的一部分 Token，提高跨句、跨段检索的召回机会，但会增加
+Embedding、存储和 Context 去重成本。参数本身进入 processing fingerprint，因此改变
+Chunk 策略会创建新 Version，而不是悄悄复用旧向量。
+
+**项目中的设计或代码证据**
+
+- `StructureAwareChunker` 和 `ChunkingConfig` 实现结构优先、Token 上限和 overlap。
+- `TiktokenTokenCounter` 负责模型相关 Token 计数。
+- `chunker_config.fingerprint_payload()` 进入 `build_processing_fingerprint()`。
+
+**为什么没有采用其他方案**
+
+- 不按 bytes/字符数硬切，避免文本损坏和预算失真。
+- 不在第一版使用昂贵、不可预测的 LLM Semantic Chunking。
+
+**常见追问**
+
+- overlap 是否总能提高检索效果？
+- Markdown 标题应该复制到每个子块吗？
+
+**容易说错的地方**
+
+- Token 不是字符数，也不是字节数。
+- overlap 是相邻 Chunk 的冗余，不是重复建多个 Version。
+
+**掌握状态**
+
+`理解 / 能写`：Token Chunk、结构边界与 overlap 配置已实现（2026-08-19）。
+`能讲 / 能画`：待用一个跨段定义举例说明召回影响。
+
+### Q5. Embedding、Vector、Embedding Profile 和处理指纹分别解决什么问题？
+
+**30 秒简答**
+
+Embedding Model 把文本映射为固定维度的浮点 Vector，使语义相近文本在同一向量空间距离
+更近。Embedding Profile 固定模型别名、维度和 tokenizer；处理指纹把文件、Parser、Chunker
+和 Profile 合在一起，决定旧 Version 能否幂等复用。
+
+**2 分钟完整回答**
+
+Vector 是数值数组，例如 1536 个 float，不是加密后的原文，也不是关键词列表。Embedding
+Provider 对同一个模型空间中的 Query 和 Chunk 分别产生 Vector，Vector Store 才能以距离
+或相似度检索候选。不同模型的维度、训练语义和 tokenizer 可能不同，因此 1536 维旧向量
+不能与 3072 维新向量混用，即使数据库字段名字相同。
+
+项目将模型 Profile 作为服务器配置，客户端不能选择任意 Provider/维度；EmbeddingGateway
+检查每批返回数量、顺序、维度和数值有限性。processing fingerprint 包含 File SHA-256、
+Parser、Chunker 配置和 Profile，配置任意一项变化就形成新 Version，避免重复付费或错误
+复用旧索引。
+
+**项目中的设计或代码证据**
+
+- `EmbeddingGateway.embed()` 统一 Provider 调用、Deadline 和结果校验。
+- `EmbeddingProfile` 与 `resolve_default_embedding_profile()` 解析模型配置。
+- `knowledge/indexing.py` 计算稳定 SHA-256 processing fingerprint。
+
+**为什么没有采用其他方案**
+
+- 不让 KnowledgeService 直接调用厂商 SDK，保持 Capability-specific Gateway 边界。
+- 不只按 File SHA-256 去重，因为处理配置变化会改变索引结果。
+
+**常见追问**
+
+- 为什么 Query 不能用另一个不兼容模型生成 Vector？
+- Float Vector 是否需要保存在 MySQL？
+
+**容易说错的地方**
+
+- Embedding 不是生成摘要，也不会直接生成最终答案。
+- 同维度不保证两个模型的向量空间兼容。
+
+**掌握状态**
+
+`理解 / 能写`：Embedding Gateway、批处理和 Profile 校验已实现（2026-08-19）。
+`能讲`：待以 Query/Chunk 同空间为例解释相似度。
+
+### Q6. 为什么 MySQL 和 Qdrant 要职责分离？
+
+**30 秒简答**
+
+MySQL 保存业务真相：owner、Base、Document、Version、Chunk 原文与状态；Qdrant 保存可再生
+Vector 和最小过滤 payload，用于相似度搜索。Qdrant 不是权限数据库，检索命中后仍要按
+MySQL 的事实回填内容和来源。
+
+**2 分钟完整回答**
+
+关系数据库擅长外键、唯一约束、事务、所有权和可审计状态；向量数据库擅长近邻搜索和
+向量索引。将两者混为一个存储，会让 Qdrant 承担复杂业务关系、文件生命周期和权限校验，
+同时把原文复制到多个系统造成漂移。项目使用 `DocumentChunk.id` 作为 Qdrant Point ID，
+payload 只保留 `knowledge_base_id` 和 `document_version_id`，可用于未来 Base Filter 与
+Version Cleanup。
+
+MySQL 不是向量库的备份，而是业务权威；Qdrant 也不是可随意丢弃的缓存，因为其重建有
+Embedding 时间与费用。两者无共享事务，所以 Service 必须用 Version 状态和补偿处理部分
+成功，而不是假设写入顺序天然一致。
+
+**项目中的设计或代码证据**
+
+- `VectorStore` Protocol 不暴露 Qdrant SDK；`QdrantVectorStore` 是唯一 SDK Adapter。
+- `VectorPoint` 明确 Point ID、Vector、Base ID、Version ID。
+- ADR-0030 固化业务真相与派生索引的边界。
+
+**为什么没有采用其他方案**
+
+- 不把权限和完整 Chunk Content 全量复制到 Qdrant。
+- 不把 Embedding Vector 作为 MySQL 主要检索索引。
+
+**常见追问**
+
+- Qdrant payload Filter 能否替代 MySQL owner 校验？
+- 为什么要按 Version 而不是 Document 清理向量？
+
+**容易说错的地方**
+
+- Qdrant 类似数据库，但不是 MySQL 的直接替代品。
+- payload 是检索辅助元数据，不是完整业务实体。
+
+**掌握状态**
+
+`理解 / 能写`：VectorStore、Qdrant Adapter、Compose 服务与边界已实现（2026-08-19）。
+`能讲 / 能画`：待画出一次检索的 Qdrant 候选到 MySQL 回填路径。
+
+### Q7. 跨 MySQL、Embedding Provider 与 Qdrant 的索引如何保证可恢复？
+
+**30 秒简答**
+
+不能做到分布式原子事务，只能用 Version 状态机、幂等键和补偿。先写 pending Version/Chunk，
+原子认领为 processing，在事务外生成向量并写 Qdrant，成功后再短事务标记 indexed；失败
+删除已写向量，清理失败则记录 cleanup_required，后续先清理才能重试。
+
+**2 分钟完整回答**
+
+Service 不在模型调用期间持有 MySQL Transaction。Repository 通过带状态条件的 UPDATE 实现
+compare-and-set，多个请求只有一个能从 pending 变 processing。Qdrant 批量写入任一批失败
+时，Service 按 `document_version_id` 删除本次可能写入的全部 Point；清理成功进入 failed，
+清理失败进入 cleanup_required，明确表达外部状态尚不确定。
+
+若 Qdrant 已写成功但 MySQL 无法完成 indexed，Service 同样删除向量，避免“数据库未索引
+但向量可被查询”的孤儿数据。retry 对 failed 重新排队；cleanup_required 先执行幂等删除。
+`active_version_id` 只在 indexed 后提升，并且只接受比当前更高的 Version Number，旧版本
+晚完成不会回退新版本。
+
+**项目中的设计或代码证据**
+
+- `claim_pending_version()`、`complete_version_indexing()`、`mark_version_indexing_failed()`。
+- `upsert_vector_points()` 和 `_cleanup_failed_vector_write()` 负责批量补偿。
+- `retry_document_version()` 与 `POST .../versions/{version_id}/retry` 实现安全重试。
+
+**为什么没有采用其他方案**
+
+- 不把外部 I/O 放进 MySQL 长事务。
+- 不把 cleanup_required 直接当 failed 后立即重试，可能留下残留向量。
+
+**常见追问**
+
+- MySQL 完成写入失败但 Qdrant 删除也失败时怎么办？
+- 为什么 processing 需要原子认领？
+
+**容易说错的地方**
+
+- 补偿不是回滚，外部删除也可能失败。
+- HTTP 上传成功不总等于知识已可检索，必须看 Version 状态。
+
+**掌握状态**
+
+`理解 / 能写`：索引状态、补偿和 retry API 已实现（2026-08-19）。
+`能讲 / 能画`：待画出 Qdrant 成功但 MySQL 失败的补偿路径。
+
+### Q8. 为什么 Sprint 5 先同步索引，而不立即使用 Celery 或消息队列？
+
+**30 秒简答**
+
+异步 Worker 只能改变调度方式，不能替代 Version 状态、幂等和补偿规则。Sprint 5 先在同步
+请求中证明入库状态机正确；Sprint 10 再把同一 Service 用例交给队列、重试策略和监控平台
+调度，避免基础设施掩盖领域问题。
+
+**2 分钟完整回答**
+
+Embedding 和 Qdrant 都是网络 I/O，生产规模最终通常需要异步任务。可是如果当前没有明确
+pending/processing/failed/cleanup_required、无原子认领，也不知道向量部分成功后如何清理，
+把调用移到 Celery 只会让失败在不同进程和消息重投之间更难观察。同步实现让调用链、状态
+和失败返回清晰，也便于学习 Service、Repository、Provider 的职责。
+
+当前 API 仍是 `async def`，因为 Embedding/Qdrant Client 是异步 I/O；这不等于已有后台
+任务或流式上传索引。未来 Worker 应调用 `retry_document_version()` 或同一索引用例，不能
+绕过 ownership、状态、处理指纹和 Vector 清理。请求级 Qdrant Client 也需要在 Worker 中
+改为任务级资源管理。
+
+**项目中的设计或代码证据**
+
+- Sprint 5 文档明确将队列和后台重试留给 Sprint 10。
+- `index_document_version()` 把 MySQL 短事务与异步网络 I/O 分开。
+- ADR-0030 明确未来调度不能绕过现有状态机。
+
+**为什么没有采用其他方案**
+
+- 不把 FastAPI BackgroundTasks 当可靠队列；其重试、持久化和可观测性不足。
+- 不提前引入 Celery/RabbitMQ，避免当前学习被部署与消息语义主导。
+
+**常见追问**
+
+- 同步上传接口的超时和用户体验如何演进？
+- Worker 至少一次投递如何避免重复 Embedding？
+
+**容易说错的地方**
+
+- `async def` 不等于后台异步任务。
+- 把任务丢给队列不自动获得幂等性或补偿。
+
+**掌握状态**
+
+`理解 / 能讲`：同步状态机与未来异步边界已明确（2026-08-19）。
+`能写`：当前同步索引已实现；Worker/队列待 Sprint 10。
+
+### 待后续 Story 补充的 Sprint 5 题目
+
+- Q9：Dense Retrieval 的 Top K、Score、Threshold 与 KnowledgeBase Metadata Filter。
+- Q10：Citation、Context Token Budget 与 Prompt 注入边界。
+- Q11：如何评价 Retrieval Recall、Answer Faithfulness 和 Citation Accuracy。
+- Q12：Dense、Sparse、Hybrid、Reranker 和 Query Rewrite 的演进取舍。
 
 ## Sprint 6: Workflow
 
