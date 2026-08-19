@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.embedding_gateway import EmbeddingGateway, EmbeddingRequest
+from app.ai.exceptions import AIError
 from app.db.repositories.file_repository import FileRepository
 from app.db.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge import (
@@ -533,6 +534,131 @@ class KnowledgeService:
             raise KnowledgeVersionWriteError() from error
 
         return version
+
+    async def index_document_version(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        document_version_id: str,
+        components: KnowledgeIndexingComponents,
+    ) -> DocumentVersion | None:
+        """
+        执行一个 DocumentVersion 从 pending 到最终索引状态的完整同步流程。
+
+        输入是当前用户、Document、Version 与服务器索引组件；本方法依次认领 Version、
+        读取 Chunk、生成 Embedding、写入 VectorStore，并在成功后激活安全的最新 Version。
+        返回 indexed、failed、cleanup_required 的终态 Version，或在并发请求已认领时返回
+        None。每段网络 I/O 都在短 MySQL 事务之外执行，失败时保留旧 active Version。
+        """
+
+        # 在认领前保存 Document：后续构造 VectorPoint 需要它提供 knowledge_base_id。
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+
+        version = self.claim_pending_version(
+            owner_id=owner_id,
+            document_id=document.id,
+            document_version_id=document_version_id,
+        )
+        if version is None:
+            return None
+
+        chunks = self._knowledge_repository.list_chunks(document_version_id=version.id)
+        if not chunks:
+            return self.mark_version_indexing_failed(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                cleanup_required=False,
+                failure_reason="missing_chunks",
+            )
+
+        vectors_written = False
+        try:
+            chunk_vectors = await self.embed_chunk_batches(
+                chunks=chunks,
+                components=components,
+            )
+            vector_points = self.build_vector_points(
+                document=document,
+                version=version,
+                chunks=chunks,
+                chunk_vectors=chunk_vectors,
+            )
+            await self.upsert_vector_points(
+                document_version_id=version.id,
+                vector_points=vector_points,
+                components=components,
+            )
+            vectors_written = True
+            indexed_version = self.complete_version_indexing(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+            )
+            if indexed_version is None:
+                # 认领成功后理论上仍应处于 processing；不能在 Qdrant 写入成功后
+                # 静默返回，否则 MySQL 与向量库会留下不一致的孤儿向量。
+                raise KnowledgeVersionWriteError(
+                    "Processing document version could not be completed."
+                )
+            return indexed_version
+        except VectorStoreCleanupRequiredError:
+            return self.mark_version_indexing_failed(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                cleanup_required=True,
+                failure_reason="vector_cleanup_failed",
+            )
+        except AIError:
+            return self.mark_version_indexing_failed(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                cleanup_required=False,
+                failure_reason="embedding_failed",
+            )
+        except (
+            VectorStoreConfigurationError,
+            VectorStoreInputError,
+            VectorStoreOperationError,
+            VectorStoreUnavailableError,
+        ):
+            return self.mark_version_indexing_failed(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                cleanup_required=False,
+                failure_reason="vector_store_failed",
+            )
+        except KnowledgeVersionWriteError:
+            if vectors_written:
+                try:
+                    await self._cleanup_failed_vector_write(
+                        document_version_id=version.id,
+                        vector_store=components.vector_store,
+                    )
+                except VectorStoreCleanupRequiredError:
+                    return self.mark_version_indexing_failed(
+                        owner_id=owner_id,
+                        document_id=document.id,
+                        document_version_id=version.id,
+                        cleanup_required=True,
+                        failure_reason="vector_cleanup_failed",
+                    )
+            return self.mark_version_indexing_failed(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                cleanup_required=False,
+                failure_reason="index_state_write_failed",
+            )
 
     async def upsert_vector_points(
         self,
