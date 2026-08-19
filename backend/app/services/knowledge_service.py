@@ -447,6 +447,49 @@ class KnowledgeService:
 
         return version
 
+    def complete_version_indexing(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """
+        提交一个已写入 Qdrant 的 processing Version，并按版本号安全更新 active 指针。
+
+        调用方必须仅在全部 Embedding 与 VectorStore 写入成功后调用。成功返回 indexed
+        Version；若 Version 不再是 processing 则返回 None，不覆盖并发失败或重复完成
+        的状态。Version 完成与 active_version_id 更新在同一个短 MySQL 事务中进行，
+        不调用 Qdrant，也不会把更高版本的 active 指针回退到较旧 Version。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+
+        try:
+            version = self._knowledge_repository.complete_processing_version(
+                document_id=document.id,
+                document_version_id=document_version_id,
+            )
+            if version is None:
+                self._session.rollback()
+                return None
+            self._knowledge_repository.promote_active_version(
+                document_id=document.id,
+                document_version_id=version.id,
+                version_number=version.version_number,
+            )
+            self._session.commit()
+        except SQLAlchemyError as error:
+            self._session.rollback()
+            raise KnowledgeVersionWriteError() from error
+
+        return version
+
     async def upsert_vector_points(
         self,
         *,
