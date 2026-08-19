@@ -413,6 +413,40 @@ class KnowledgeService:
 
         return tuple(vector_points)
 
+    def claim_pending_version(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """
+        为当前用户原子认领一个 pending Version，作为索引流程的唯一并发入口。
+
+        输入是已认证用户、Document 与 Version ID；成功时返回状态已提交为 processing
+        的 Version。若 Version 已被其他请求认领、已完成或不再是 pending，返回 None
+        而不是重复执行索引。此方法只处理短 MySQL 事务，不调用 Embedding 或 Qdrant。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+
+        try:
+            version = self._knowledge_repository.claim_pending_version(
+                document_id=document.id,
+                document_version_id=document_version_id,
+            )
+            self._session.commit()
+        except SQLAlchemyError as error:
+            self._session.rollback()
+            raise KnowledgeVersionWriteError() from error
+
+        return version
+
     async def upsert_vector_points(
         self,
         *,
