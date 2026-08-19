@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from app.ai.exceptions import (
+    AIProviderError,
     AIInvalidModelError,
     AIInvalidRequestError,
     AIProviderRateLimitError,
@@ -153,7 +154,7 @@ class EmbeddingGateway:
                 )
 
 
-def _translate_provider_error(error: ProviderError) -> AIProviderUnavailableError:
+def _translate_provider_error(error: ProviderError) -> AIProviderError:
     """将 Provider 的限流、超时和不可用异常转换为业务层稳定 AI 异常。"""
 
     if isinstance(error, ProviderRateLimitError):
