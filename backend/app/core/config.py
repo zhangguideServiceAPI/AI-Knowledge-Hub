@@ -208,6 +208,8 @@ class Settings(BaseSettings):
     # 分块大小来自服务器配置，避免 Router、Service 或 Chunker 内散落魔法数字。
     KNOWLEDGE_CHUNK_MAX_TOKENS: PositiveInt = 800
     KNOWLEDGE_CHUNK_OVERLAP_TOKENS: int = Field(default=120, ge=0)
+    # 一次发送给 Embedding Provider 的 Chunk 数；批大小不改变向量内容，因此不参与 Version 指纹。
+    KNOWLEDGE_EMBEDDING_BATCH_SIZE: PositiveInt = 32
 
     # ge=0：greater than or equal，必须 >= 0
     # le=3：less than or equal，必须 <= 3

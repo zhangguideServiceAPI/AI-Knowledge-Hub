@@ -119,6 +119,7 @@ def get_knowledge_indexing_components(
         chunker=chunker,
         chunking_config=chunking_config,
         embedding_profile=embedding_profile,
+        embedding_batch_size=settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE,
     )
 
 
