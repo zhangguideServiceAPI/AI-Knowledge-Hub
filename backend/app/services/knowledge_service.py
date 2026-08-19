@@ -490,6 +490,50 @@ class KnowledgeService:
 
         return version
 
+    def mark_version_indexing_failed(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        document_version_id: str,
+        cleanup_required: bool,
+        failure_reason: str,
+    ) -> DocumentVersion | None:
+        """
+        记录索引失败终态，并保留原有 Document.active_version_id。
+
+        输入的 cleanup_required 由 VectorStore 补偿结果决定：清理成功标记 failed，
+        清理失败标记 cleanup_required。成功返回已提交的失败 Version；若并发流程已经
+        改变 Version 状态则返回 None。该方法只提交短 MySQL 事务，不调用 Qdrant，
+        因此不会再次尝试清理向量。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+
+        target_status = (
+            DocumentVersionStatus.CLEANUP_REQUIRED
+            if cleanup_required
+            else DocumentVersionStatus.FAILED
+        )
+        try:
+            version = self._knowledge_repository.fail_processing_version(
+                document_id=document.id,
+                document_version_id=document_version_id,
+                target_status=target_status,
+                failure_reason=failure_reason,
+            )
+            self._session.commit()
+        except (SQLAlchemyError, ValueError) as error:
+            self._session.rollback()
+            raise KnowledgeVersionWriteError() from error
+
+        return version
+
     async def upsert_vector_points(
         self,
         *,

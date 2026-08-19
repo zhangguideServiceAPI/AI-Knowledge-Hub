@@ -212,6 +212,55 @@ class KnowledgeRepository:
         )
         return self._session.scalar(statement)
 
+    def fail_processing_version(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+        target_status: DocumentVersionStatus,
+        failure_reason: str,
+    ) -> DocumentVersion | None:
+        """
+        将一个 processing Version 原子标记为 failed 或 cleanup_required。
+
+        输入 target_status 只能是两个失败终态，failure_reason 用于后续诊断和重试决策。
+        Version 已完成、已失败或不属于指定 Document 时返回 None，避免重复请求覆盖已有
+        终态。调用方负责 commit 或 rollback，本方法不触碰 Document.active_version_id。
+        """
+
+        if target_status not in {
+            DocumentVersionStatus.FAILED,
+            DocumentVersionStatus.CLEANUP_REQUIRED,
+        }:
+            raise ValueError("Target status must be a document version failure state.")
+        if not failure_reason.strip() or len(failure_reason) > 64:
+            raise ValueError(
+                "Failure reason must be non-empty and at most 64 characters."
+            )
+
+        statement = (
+            update(DocumentVersion)
+            .where(
+                DocumentVersion.id == document_version_id,
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.status == DocumentVersionStatus.PROCESSING.value,
+            )
+            .values(
+                status=target_status.value,
+                failure_reason=failure_reason,
+            )
+        )
+        result = self._session.execute(statement)
+        if result.rowcount != 1:
+            return None
+
+        statement = (
+            select(DocumentVersion)
+            .where(DocumentVersion.id == document_version_id)
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
     def promote_active_version(
         self,
         *,
