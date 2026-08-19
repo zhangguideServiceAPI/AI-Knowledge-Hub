@@ -17,6 +17,7 @@ class EmbeddingProfile:
     alias: str
     provider_key: str
     provider_model: str
+    tokenizer_encoding: str
     dimension: int
 
     def fingerprint_payload(self) -> dict[str, object]:
@@ -31,6 +32,7 @@ class EmbeddingProfile:
             "alias": self.alias,
             "provider_key": self.provider_key,
             "provider_model": self.provider_model,
+            "tokenizer_encoding": self.tokenizer_encoding,
             "dimension": self.dimension,
         }
 
@@ -63,5 +65,6 @@ def resolve_default_embedding_profile(
         alias=default_model_alias,
         provider_key=model_config.provider_key,
         provider_model=model_config.provider_model,
+        tokenizer_encoding=model_config.tokenizer_encoding,
         dimension=model_config.dimension,
     )

@@ -123,6 +123,12 @@ class EmbeddingModelConfig(BaseModel):
         pattern=r"^[A-Za-z0-9._-]+$",
     )
     provider_model: str = Field(min_length=1, max_length=128)
+    # tiktoken 的编码表名称，例如 cl100k_base；不能从 Provider 模型名猜测。
+    tokenizer_encoding: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
     # 向量维度是 Qdrant Collection 与 DocumentVersion 的固定契约，必须为正数。
     dimension: PositiveInt
 
@@ -198,6 +204,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODELS: dict[EmbeddingModelAlias, EmbeddingModelConfig] = Field(
         default_factory=dict,
     )
+
+    # 分块大小来自服务器配置，避免 Router、Service 或 Chunker 内散落魔法数字。
+    KNOWLEDGE_CHUNK_MAX_TOKENS: PositiveInt = 800
+    KNOWLEDGE_CHUNK_OVERLAP_TOKENS: int = Field(default=120, ge=0)
 
     # ge=0：greater than or equal，必须 >= 0
     # le=3：less than or equal，必须 <= 3
@@ -323,6 +333,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AI_STREAM_TOTAL_DEADLINE_SECONDS must be greater than "
                 "or equal to AI_STREAM_IDLE_TIMEOUT_SECONDS."
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_knowledge_chunking_config(self) -> Self:
+        """确认 overlap 小于单个 Chunk 上限，避免生成完全重复的分块。"""
+
+        if self.KNOWLEDGE_CHUNK_OVERLAP_TOKENS >= self.KNOWLEDGE_CHUNK_MAX_TOKENS:
+            raise ValueError(
+                "KNOWLEDGE_CHUNK_OVERLAP_TOKENS must be less than "
+                "KNOWLEDGE_CHUNK_MAX_TOKENS."
             )
 
         return self
