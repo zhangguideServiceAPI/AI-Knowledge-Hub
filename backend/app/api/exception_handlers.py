@@ -35,6 +35,7 @@ from app.storage.exceptions import (
     UnsupportedFileTypeError,
 )
 from app.ai.prompt_center import PromptError
+from app.knowledge.exceptions import KnowledgeBaseWriteError
 
 
 async def email_already_registered_handler(
@@ -257,6 +258,24 @@ async def file_content_unavailable_handler(
     )
 
 
+async def knowledge_base_write_error_handler(
+    request: Request,
+    _error: KnowledgeBaseWriteError,
+) -> JSONResponse:
+    """将知识库写入失败记录为服务端错误，不向客户端暴露数据库细节。"""
+
+    logger.error(
+        "knowledge.base.write.failed method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="Knowledge base could not be created.")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response.model_dump(),
+    )
+
+
 @dataclass(frozen=True)
 class PublicAIError:
     status_code: int
@@ -407,6 +426,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         FileContentUnavailableError,
         file_content_unavailable_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeBaseWriteError,
+        knowledge_base_write_error_handler,
     )
     app.add_exception_handler(AIError, ai_error_handler)
 

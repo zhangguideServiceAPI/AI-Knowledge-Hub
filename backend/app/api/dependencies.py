@@ -16,6 +16,7 @@ from app.db.session import SessionLocal, get_db
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.file_service import FileService
+from app.services.knowledge_service import KnowledgeService
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
@@ -67,6 +68,14 @@ def get_file_service(
         max_upload_size=settings.MAX_UPLOAD_SIZE_BYTES,
         chunk_size=settings.UPLOAD_CHUNK_SIZE_BYTES,
     )
+
+
+def get_knowledge_service(
+    session: Annotated[Session, Depends(get_db)],
+) -> KnowledgeService:
+    """用请求级数据库 Session 创建 KnowledgeService，供知识库 API 注入。"""
+
+    return KnowledgeService(session)
 
 
 def get_ai_gateway() -> AIGateway:
