@@ -1,9 +1,17 @@
+from dataclasses import dataclass
+
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.repositories.file_repository import FileRepository
 from app.db.repositories.knowledge_repository import KnowledgeRepository
-from app.knowledge import ChunkDraft, Chunker, ParserRegistry
+from app.knowledge import (
+    ChunkDraft,
+    Chunker,
+    ChunkingConfig,
+    EmbeddingProfile,
+    ParserRegistry,
+)
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
     KnowledgeBaseWriteError,
@@ -17,6 +25,22 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument
 from app.storage.exceptions import FileResourceNotFoundError
 from app.storage.provider import StorageProvider
+
+
+@dataclass(frozen=True)
+class KnowledgeIndexingComponents:
+    """
+    准备一个 DocumentVersion 时由 Service 编排的运行时依赖。
+
+    这些值由服务器 Dependency 从 Settings 和 Provider 组装，不来自 API 请求；
+    因此客户端不能自行选择 Tokenizer、Chunk 大小或 Embedding 模型。
+    """
+
+    storage_provider: StorageProvider
+    parser_registry: ParserRegistry
+    chunker: Chunker
+    chunking_config: ChunkingConfig
+    embedding_profile: EmbeddingProfile
 
 
 class KnowledgeService:
