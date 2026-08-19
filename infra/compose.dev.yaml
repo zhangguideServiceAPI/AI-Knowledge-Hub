@@ -46,6 +46,24 @@ services:
       retries: 10
       start_period: 5s
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    restart: unless-stopped
+    ports:
+      # REST API 和 Dashboard 只供本机开发使用，避免暴露向量数据到局域网。
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      # 后续 Python Client 如需 gRPC 时使用；当前阶段仍只定义 VectorStore 边界。
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # 固定镜像没有 curl/wget；Bash TCP 检查确认 HTTP 端口已开始监听。
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
@@ -109,6 +127,9 @@ volumes:
 
   redis_data:
     name: ai-knowledge-hub-redis-data
+
+  qdrant_data:
+    name: ai-knowledge-hub-qdrant-data
 
   minio_data:
     name: ai-knowledge-hub-minio-data
