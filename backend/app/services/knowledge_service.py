@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import BinaryIO
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -26,8 +27,10 @@ from app.models.document_version import DocumentVersion, DocumentVersionStatus
 from app.models.file_resource import FileResource
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument
+from app.schemas.file import FileResourceResponse
 from app.storage.exceptions import FileResourceNotFoundError
 from app.storage.provider import StorageProvider
+from app.services.file_service import FileService
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,16 @@ class KnowledgeIndexingComponents:
     chunker: Chunker
     chunking_config: ChunkingConfig
     embedding_profile: EmbeddingProfile
+
+
+@dataclass(frozen=True)
+class KnowledgeIngestionResult:
+    """用户上传知识文件后，系统产生的 File、Document、Version 与 Chunk 结果。"""
+
+    file_resource: FileResourceResponse
+    document: KnowledgeDocument
+    version: DocumentVersion
+    chunks: tuple[DocumentChunk, ...]
 
 
 class KnowledgeService:
@@ -75,6 +88,57 @@ class KnowledgeService:
             raise KnowledgeBaseWriteError() from error
 
         return knowledge_base
+
+    def ingest_file_to_base(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        original_filename: str | None,
+        content_type: str | None,
+        source: BinaryIO,
+        file_service: FileService,
+        components: KnowledgeIndexingComponents,
+    ) -> KnowledgeIngestionResult:
+        """
+        完成用户“上传文件到知识库”的整条同步业务流程。
+
+        输入是用户、目标知识库、上传文件及服务器组装的服务组件；依次创建
+        FileResource、KnowledgeDocument、pending DocumentVersion 和多个 Chunk。
+        每个阶段独立提交，避免文件上传成功后因解析失败而丢失原文件；解析失败时
+        File 与 Document 会保留，供后续重新索引，而 Version/Chunk 不会写入。
+        """
+
+        # 必须先验证目标 Base，避免无效或越权 Base 导致上传成功却没有关联 Document 的孤立文件。
+        knowledge_base = self._knowledge_repository.get_owned_base(
+            knowledge_base_id=knowledge_base_id,
+            owner_id=owner_id,
+        )
+        if knowledge_base is None:
+            raise KnowledgeBaseNotFoundError()
+
+        file_resource = file_service.upload(
+            owner_id=owner_id,
+            original_filename=original_filename,
+            content_type=content_type,
+            source=source,
+        )
+        document = self.add_file_to_base(
+            owner_id=owner_id,
+            knowledge_base_id=knowledge_base.id,
+            file_id=str(file_resource.id),
+        )
+        version, chunks = self.prepare_document_version(
+            owner_id=owner_id,
+            document_id=document.id,
+            components=components,
+        )
+        return KnowledgeIngestionResult(
+            file_resource=file_resource,
+            document=document,
+            version=version,
+            chunks=chunks,
+        )
 
     def add_file_to_base(
         self,

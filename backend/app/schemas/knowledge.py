@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.file import FileResourceResponse
+
 
 class KnowledgeBaseCreateRequest(BaseModel):
     """用户主动创建知识库时提交的名称。"""
@@ -46,8 +48,8 @@ class KnowledgeDocumentResponse(BaseModel):
     updated_at: datetime
 
 
-class DocumentVersionPrepareResponse(BaseModel):
-    """系统完成解析和分块后返回的待索引 Version 摘要。"""
+class DocumentVersionResponse(BaseModel):
+    """系统自动准备完成的待索引 DocumentVersion 摘要。"""
 
     id: UUID
     document_id: UUID
@@ -55,3 +57,11 @@ class DocumentVersionPrepareResponse(BaseModel):
     status: str
     chunk_count: int
     created_at: datetime
+
+
+class KnowledgeFileIngestionResponse(BaseModel):
+    """用户上传一个知识文件后，系统自动生成的全部业务记录摘要。"""
+
+    file: FileResourceResponse
+    document: KnowledgeDocumentResponse
+    version: DocumentVersionResponse
