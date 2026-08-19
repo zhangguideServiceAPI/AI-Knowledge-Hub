@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.embedding_gateway import EmbeddingGateway, EmbeddingRequest
-from app.ai.exceptions import AIError
+from app.ai.exceptions import AIError, AIInvalidRequestError
 from app.db.repositories.file_repository import FileRepository
 from app.db.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge import (
@@ -18,12 +18,15 @@ from app.knowledge import (
     ParsedDocument,
     build_processing_fingerprint,
 )
+from app.knowledge.retrieval import RetrievalHit
 from app.knowledge.vector_store import VectorPoint, VectorStore
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
     KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
+    KnowledgeRetrievalError,
+    KnowledgeRetrievalUnavailableError,
     KnowledgeVersionNotFoundError,
     KnowledgeVersionRetryError,
     KnowledgeVersionWriteError,
@@ -62,6 +65,37 @@ class KnowledgeIndexingComponents:
     embedding_gateway: EmbeddingGateway
     vector_upsert_batch_size: int
     vector_store: VectorStore
+
+
+@dataclass(frozen=True)
+class KnowledgeRetrievalComponents:
+    """
+    执行一次知识检索所需的服务器侧 Embedding、向量库和检索策略。
+
+    这些参数由 Dependency 根据 Settings 创建，不来自 HTTP 请求；客户端只能提交问题和
+    KnowledgeBase，不能放大 Top K、降低阈值或指定其他 Embedding 模型。
+    """
+
+    embedding_profile: EmbeddingProfile
+    embedding_gateway: EmbeddingGateway
+    vector_store: VectorStore
+    top_k: int
+    candidate_multiplier: int
+    score_threshold: float
+
+    def __post_init__(self) -> None:
+        """在组装组件时校验服务器检索策略，阻止无效配置进入网络调用。"""
+
+        if self.top_k <= 0 or self.candidate_multiplier <= 0:
+            raise ValueError("Retrieval limits must be greater than zero.")
+        if not -1.0 <= self.score_threshold <= 1.0:
+            raise ValueError("Retrieval score threshold must be between -1.0 and 1.0.")
+
+    @property
+    def candidate_limit(self) -> int:
+        """返回 Qdrant 预取数量，为 MySQL active Version 过滤预留候选余量。"""
+
+        return self.top_k * self.candidate_multiplier
 
 
 @dataclass(frozen=True)
@@ -552,6 +586,93 @@ class KnowledgeService:
             raise KnowledgeVersionWriteError() from error
 
         return version
+
+    async def search_knowledge(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        query: str,
+        components: KnowledgeRetrievalComponents,
+    ) -> tuple[RetrievalHit, ...]:
+        """
+        从当前用户拥有的 KnowledgeBase 检索有效 Chunk，并返回稳定的 RetrievalHit。
+
+        输入是用户、知识库、自然语言问题和服务器组装的检索组件；依次校验所有权、生成
+        Query Embedding、从 Qdrant 获取候选、再由 MySQL 过滤 active/indexed Version 与
+        READY File。输出按 Qdrant 分数降序，最多 top_k 条；本方法不构造 Prompt、不调用
+        ChatService，也不改变任何索引状态。
+        """
+
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise AIInvalidRequestError("Knowledge retrieval query must not be blank.")
+
+        knowledge_base = self._knowledge_repository.get_owned_base(
+            knowledge_base_id=knowledge_base_id,
+            owner_id=owner_id,
+        )
+        if knowledge_base is None:
+            raise KnowledgeBaseNotFoundError()
+        resolved_knowledge_base_id = knowledge_base.id
+        # 所有权校验已经完成；Embedding/Qdrant 是外部网络 I/O，不能继续持有读取事务。
+        self._session.rollback()
+
+        embedding_result = await components.embedding_gateway.embed(
+            EmbeddingRequest(
+                # Query 也进入同一个 Embedding 模型空间，但它不是可持久化的 Document Chunk。
+                request_id=str(uuid4()),
+                texts=(normalized_query,),
+                model_alias=components.embedding_profile.alias,
+            )
+        )
+        query_vector = embedding_result.vectors[0]
+
+        try:
+            candidates = await components.vector_store.search(
+                query_vector=query_vector,
+                knowledge_base_id=resolved_knowledge_base_id,
+                limit=components.candidate_limit,
+                score_threshold=components.score_threshold,
+            )
+        except VectorStoreUnavailableError as error:
+            raise KnowledgeRetrievalUnavailableError() from error
+        except (
+            VectorStoreConfigurationError,
+            VectorStoreInputError,
+            VectorStoreOperationError,
+        ) as error:
+            raise KnowledgeRetrievalError() from error
+
+        if not candidates:
+            return ()
+
+        active_chunks = self._knowledge_repository.list_active_chunks_by_ids(
+            knowledge_base_id=resolved_knowledge_base_id,
+            chunk_ids=tuple(candidate.chunk_id for candidate in candidates),
+        )
+        active_chunks_by_id = {chunk.chunk_id: chunk for chunk in active_chunks}
+
+        hits: list[RetrievalHit] = []
+        for candidate in candidates:
+            chunk = active_chunks_by_id.get(candidate.chunk_id)
+            if chunk is None:
+                # Qdrant 可能保留旧 Version 或已删除 File 的点；MySQL 是最终业务真相。
+                continue
+            hits.append(
+                RetrievalHit(
+                    chunk_id=chunk.chunk_id,
+                    document_id=chunk.document_id,
+                    file_id=chunk.file_id,
+                    content=chunk.content,
+                    source_locator=chunk.source_locator,
+                    score=candidate.score,
+                )
+            )
+            if len(hits) == components.top_k:
+                break
+
+        return tuple(hits)
 
     async def retry_document_version(
         self,

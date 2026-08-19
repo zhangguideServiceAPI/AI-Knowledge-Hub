@@ -1,5 +1,7 @@
 """Qdrant 对 Knowledge VectorStore 协议的异步实现。"""
 
+import math
+
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
@@ -10,6 +12,7 @@ from app.knowledge.exceptions import (
     VectorStoreUnavailableError,
 )
 from app.knowledge.vector_store import VectorPoint
+from app.knowledge.retrieval import VectorSearchCandidate
 
 _KNOWLEDGE_BASE_PAYLOAD_KEY = "knowledge_base_id"
 _DOCUMENT_VERSION_PAYLOAD_KEY = "document_version_id"
@@ -127,6 +130,61 @@ class QdrantVectorStore:
                 "Qdrant rejected version cleanup."
             ) from error
 
+    async def search(
+        self,
+        *,
+        query_vector: tuple[float, ...],
+        knowledge_base_id: str,
+        limit: int,
+        score_threshold: float,
+    ) -> tuple[VectorSearchCandidate, ...]:
+        """
+        在单个 KnowledgeBase 的 payload 范围内返回按分数排序的 Chunk 候选。
+
+        输入向量必须匹配 Collection 维度，limit 与 threshold 来自服务器配置。Qdrant 只做
+        向量相似度和 knowledge_base_id 预过滤；Document.active_version_id、File 状态和原文
+        仍由 Service 随后的 MySQL 查询确认。Collection 尚未创建代表没有可检索内容，返回空。
+        """
+
+        self._validate_search_input(
+            query_vector=query_vector,
+            knowledge_base_id=knowledge_base_id,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        try:
+            if not await self._client.collection_exists(
+                collection_name=self._collection_name
+            ):
+                return ()
+            points = await self._client.search(
+                collection_name=self._collection_name,
+                query_vector=list(query_vector),
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key=_KNOWLEDGE_BASE_PAYLOAD_KEY,
+                            match=models.MatchValue(value=knowledge_base_id),
+                        )
+                    ]
+                ),
+                limit=limit,
+                with_payload=False,
+                with_vectors=False,
+                score_threshold=score_threshold,
+            )
+        except ResponseHandlingException as error:
+            raise VectorStoreUnavailableError(
+                "Qdrant search request failed."
+            ) from error
+        except UnexpectedResponse as error:
+            raise VectorStoreOperationError("Qdrant rejected vector search.") from error
+
+        return tuple(
+            VectorSearchCandidate(chunk_id=str(point.id), score=float(point.score))
+            for point in points
+        )
+
     def _validate_points(self, points: tuple[VectorPoint, ...]) -> None:
         """
         确认 Point ID、过滤 metadata 与向量长度可安全写入固定维度 Collection。
@@ -148,6 +206,31 @@ class QdrantVectorStore:
                 raise VectorStoreInputError(
                     "Vector dimension does not match the configured Qdrant collection."
                 )
+
+    def _validate_search_input(
+        self,
+        *,
+        query_vector: tuple[float, ...],
+        knowledge_base_id: str,
+        limit: int,
+        score_threshold: float,
+    ) -> None:
+        """在访问 Qdrant 前校验检索范围、向量维度和服务端搜索参数。"""
+
+        if not knowledge_base_id.strip() or limit <= 0:
+            raise VectorStoreInputError(
+                "Knowledge base ID must be non-empty and search limit must be positive."
+            )
+        if len(query_vector) != self._vector_dimension or not all(
+            math.isfinite(value) for value in query_vector
+        ):
+            raise VectorStoreInputError(
+                "Query vector must contain finite values with the configured dimension."
+            )
+        if not -1.0 <= score_threshold <= 1.0:
+            raise VectorStoreInputError(
+                "Cosine score threshold must be between -1.0 and 1.0."
+            )
 
     async def _ensure_collection(self) -> None:
         """

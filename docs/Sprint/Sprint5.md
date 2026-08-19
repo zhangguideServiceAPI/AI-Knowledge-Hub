@@ -8,15 +8,15 @@
 
 ## 状态
 
-Sprint 5 正在进行，当前进入 Story 5.7 Retrieval 的设计阶段。Story 5.1 至 5.6 已完成
-领域模型、解析、Chunk、Embedding、Qdrant 和同步索引的实现；按当前学习约定，新增测试
-暂缓，完整回归与 Story 验收仍待后续统一执行。
+Sprint 5 正在进行，当前进入 Story 5.8 Citation & Context 的设计阶段。Story 5.1 至 5.7
+已完成领域模型、解析、Chunk、Embedding、Qdrant、同步索引与 Dense Retrieval 的实现；按
+当前学习约定，新增测试暂缓，完整回归与 Story 验收仍待后续统一执行。
 
 ```text
 Current Sprint: Sprint 5 Knowledge / RAG
-Current Story: Story 5.7 Retrieval
-Current Goal: 从已索引的 KnowledgeBase 中检索相关 Chunk，为 Context 与 Citation 准备输入
-Current Step: 定义 KnowledgeService.search_knowledge(...) 的输入、输出与边界
+Current Story: Story 5.8 Citation & Context
+Current Goal: 将已验证的 RetrievalHit 组织为可追溯、受 Token 预算约束的模型 Context
+Current Step: 定义 ContextBuilder 与 Citation 的输入、输出和边界
 ```
 
 | Story | 状态 | 已形成的实现证据 |
@@ -27,11 +27,11 @@ Current Step: 定义 KnowledgeService.search_knowledge(...) 的输入、输出�
 | 5.4 Embedding Pipeline | 实现完成，测试待补 | EmbeddingProvider、EmbeddingGateway、模型 Profile、批量向量生成与维度校验 |
 | 5.5 Vector Store / Qdrant | 实现完成，测试待补 | VectorStore 协议、Qdrant Adapter、Collection 初始化、payload 过滤索引、批量 upsert 与清理 |
 | 5.6 Indexing Pipeline | 实现完成，测试待补 | 上传同步索引、Version 原子认领、状态机、补偿、active Version 提升、失败重试 API |
-| 5.7 Retrieval | 进行中 | 先定义 Service 检索用例，再接 Query Embedding、Qdrant Search 与 MySQL 回填 |
+| 5.7 Retrieval | 实现完成，测试待补 | Query Embedding、KnowledgeBase Filter、Qdrant Dense Search、MySQL active Version 回填、RetrievalHit 与认证 API |
 | 5.8 Citation & Context | 未开始 | - |
 | 5.9 RAG End-to-End & Review | 未开始 | - |
 
-当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md)。
+当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md) 与 [ADR-0031](../architecture/adr/ADR-0031-mysql-validated-vector-retrieval.md)。
 
 ---
 
@@ -482,6 +482,27 @@ Top K
 - BM25
 - Hybrid Search
 - Reranker
+
+### 当前实现状态
+
+当前检索入口是：
+
+```text
+POST /knowledge-bases/{knowledge_base_id}/search
+  -> KnowledgeService.search_knowledge
+  -> EmbeddingGateway.embed(query)
+  -> VectorStore.search(query_vector, knowledge_base_id)
+  -> Qdrant 候选 (chunk_id + score)
+  -> MySQL 回填并确认 active/indexed Version 与 READY File
+  -> RetrievalHit (content + source_locator + score)
+```
+
+Qdrant 只根据 `knowledge_base_id` 过滤并给出相似度候选，不能单独决定权限或版本有效性。
+Service 使用服务器配置的 Top K、候选预取倍率和分数阈值；MySQL 过滤掉旧 Version 或已删除
+文件对应的 Point，再按 Qdrant 分数顺序返回最多 Top K 条。Qdrant 不可用返回 503，不能被
+伪装成空结果。当前结果还没有进入 Prompt/ChatService，Context 截断和 Citation 留给 Story 5.8。
+
+完整决策见 ADR-0031。
 
 ---
 

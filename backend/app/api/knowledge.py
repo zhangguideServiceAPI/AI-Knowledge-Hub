@@ -6,8 +6,10 @@ from app.api.dependencies import (
     get_current_user,
     get_file_service,
     get_knowledge_indexing_components,
+    get_knowledge_retrieval_components,
     get_knowledge_service,
 )
+from app.schemas.ai import AIErrorResponse
 from app.schemas.error import ErrorResponse
 from app.schemas.knowledge import (
     KnowledgeBaseCreateRequest,
@@ -15,10 +17,14 @@ from app.schemas.knowledge import (
     DocumentVersionResponse,
     KnowledgeDocumentResponse,
     KnowledgeFileIngestionResponse,
+    KnowledgeSearchRequest,
+    KnowledgeSearchResponse,
+    RetrievalHitResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.knowledge_service import (
     KnowledgeIndexingComponents,
+    KnowledgeRetrievalComponents,
     KnowledgeService,
 )
 from app.services.file_service import FileService
@@ -94,6 +100,81 @@ def add_file_to_knowledge_base(
         owner_id=current_user.id,
         knowledge_base_id=knowledge_base_id,
         file_id=file_id,
+    )
+
+
+@router.post(
+    "/{knowledge_base_id}/search",
+    response_model=KnowledgeSearchResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AIErrorResponse,
+            "description": "Knowledge query could not be embedded.",
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "Invalid or missing access token.",
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "Knowledge base was not found.",
+        },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "model": AIErrorResponse,
+            "description": "Embedding provider is temporarily rate limited.",
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "model": ErrorResponse,
+            "description": "Knowledge retrieval could not be completed.",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Knowledge retrieval is temporarily unavailable.",
+        },
+        status.HTTP_504_GATEWAY_TIMEOUT: {
+            "model": AIErrorResponse,
+            "description": "Embedding provider timed out.",
+        },
+    },
+)
+async def search_knowledge_base(
+    knowledge_base_id: str,
+    request: KnowledgeSearchRequest,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    knowledge_service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    components: Annotated[
+        KnowledgeRetrievalComponents,
+        Depends(get_knowledge_retrieval_components),
+    ],
+) -> KnowledgeSearchResponse:
+    """
+    在当前用户拥有的一个 KnowledgeBase 内执行 Dense Vector Retrieval。
+
+    HTTP 层只接收问题、认证用户与依赖；Query Embedding、Qdrant 候选、MySQL active
+    Version 校验和结果排序均由 KnowledgeService 完成。本接口返回检索结果，不调用模型
+    生成回答，Citation 与 Context 留给后续 Story。
+    """
+
+    hits = await knowledge_service.search_knowledge(
+        owner_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        query=request.query,
+        components=components,
+    )
+    return KnowledgeSearchResponse(
+        knowledge_base_id=knowledge_base_id,
+        hits=[
+            RetrievalHitResponse(
+                chunk_id=hit.chunk_id,
+                document_id=hit.document_id,
+                file_id=hit.file_id,
+                content=hit.content,
+                source_locator=hit.source_locator,
+                score=hit.score,
+            )
+            for hit in hits
+        ],
     )
 
 

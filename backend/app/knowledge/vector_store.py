@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.knowledge.retrieval import VectorSearchCandidate
+
 
 @dataclass(frozen=True)
 class VectorPoint:
@@ -44,6 +46,24 @@ class VectorStore(Protocol):
 
         输入是失败或删除流程确定的 Version ID；成功时没有返回值。
         删除失败必须向上抛出，以便 Service 标记 `cleanup_required` 而非错误声称清理完成。
+        """
+
+        ...
+
+    async def search(
+        self,
+        *,
+        query_vector: tuple[float, ...],
+        knowledge_base_id: str,
+        limit: int,
+        score_threshold: float,
+    ) -> tuple[VectorSearchCandidate, ...]:
+        """
+        在一个 KnowledgeBase 范围内查询相似向量候选。
+
+        返回只包含 Chunk ID 和相似度分数的有序候选，不返回原文或权限结论。调用方必须
+        用 MySQL 确认 Chunk 仍属于当前 active Version；Collection 不存在时应返回空 tuple，
+        而不是为了查询创建一个新的 Collection。
         """
 
         ...

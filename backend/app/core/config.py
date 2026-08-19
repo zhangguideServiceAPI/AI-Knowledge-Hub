@@ -212,6 +212,16 @@ class Settings(BaseSettings):
     KNOWLEDGE_EMBEDDING_BATCH_SIZE: PositiveInt = 32
     # 一次写入 Qdrant 的 Point 数；它独立于模型 API 限制，也不参与 Version 指纹。
     KNOWLEDGE_VECTOR_UPSERT_BATCH_SIZE: PositiveInt = 128
+    # 每次公开检索最多返回的有效 Chunk；客户端不能自行放大 Context 与 Provider 成本。
+    KNOWLEDGE_RETRIEVAL_TOP_K: PositiveInt = 5
+    # 因为 Qdrant 候选仍须被 MySQL 的 active Version 校验，先额外获取候选以减少过滤后的空洞。
+    KNOWLEDGE_RETRIEVAL_CANDIDATE_MULTIPLIER: PositiveInt = 4
+    # 当前 Collection 使用 Cosine 距离，分数范围为 [-1, 1]；低于阈值的候选不返回。
+    KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD: float = Field(
+        default=0.2,
+        ge=-1.0,
+        le=1.0,
+    )
 
     # Qdrant 是独立的向量检索服务；业务真相仍保存在 MySQL。
     QDRANT_URL: AnyHttpUrl = "http://127.0.0.1:6333"

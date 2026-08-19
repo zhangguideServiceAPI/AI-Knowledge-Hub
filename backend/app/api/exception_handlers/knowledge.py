@@ -9,6 +9,8 @@ from app.knowledge.exceptions import (
     KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
+    KnowledgeRetrievalError,
+    KnowledgeRetrievalUnavailableError,
     KnowledgeVersionNotFoundError,
     KnowledgeVersionRetryError,
     KnowledgeVersionWriteError,
@@ -130,6 +132,42 @@ async def knowledge_version_retry_error_handler(
     )
 
 
+async def knowledge_retrieval_error_handler(
+    request: Request,
+    _error: KnowledgeRetrievalError,
+) -> JSONResponse:
+    """记录检索内部契约失败，并返回不泄露向量库细节的 500 响应。"""
+
+    logger.error(
+        "knowledge.retrieval.failed method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="Knowledge retrieval could not be completed.")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response.model_dump(),
+    )
+
+
+async def knowledge_retrieval_unavailable_error_handler(
+    request: Request,
+    _error: KnowledgeRetrievalUnavailableError,
+) -> JSONResponse:
+    """Qdrant 暂时不可访问时返回 503，不将其伪装为无检索结果。"""
+
+    logger.warning(
+        "knowledge.retrieval.unavailable method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="Knowledge retrieval is temporarily unavailable.")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
+    )
+
+
 async def parsing_error_handler(
     request: Request,
     error: ParsingError,
@@ -181,5 +219,13 @@ def register_knowledge_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         KnowledgeVersionRetryError,
         knowledge_version_retry_error_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeRetrievalError,
+        knowledge_retrieval_error_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeRetrievalUnavailableError,
+        knowledge_retrieval_unavailable_error_handler,
     )
     app.add_exception_handler(ParsingError, parsing_error_handler)

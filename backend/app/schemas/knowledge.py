@@ -65,3 +65,39 @@ class KnowledgeFileIngestionResponse(BaseModel):
     file: FileResourceResponse
     document: KnowledgeDocumentResponse
     version: DocumentVersionResponse
+
+
+class KnowledgeSearchRequest(BaseModel):
+    """当前用户向一个 KnowledgeBase 提交的自然语言检索问题。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=2_000)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, query: str) -> str:
+        """清理问题首尾空白，并拒绝清理后没有语义内容的请求。"""
+
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError("Knowledge retrieval query must not be blank.")
+        return normalized_query
+
+
+class RetrievalHitResponse(BaseModel):
+    """已通过 MySQL 所有权和 active Version 校验的一个可用检索结果。"""
+
+    chunk_id: UUID
+    document_id: UUID
+    file_id: UUID
+    content: str
+    source_locator: dict[str, object]
+    score: float
+
+
+class KnowledgeSearchResponse(BaseModel):
+    """一个 KnowledgeBase 的 Dense Retrieval 结果，不包含最终 Chat 回答。"""
+
+    knowledge_base_id: UUID
+    hits: list[RetrievalHitResponse]
