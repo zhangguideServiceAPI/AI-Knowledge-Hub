@@ -133,14 +133,14 @@ uv sync --dev
 cd ..
 ```
 
-### 3. 启动 MySQL、Redis 和 MinIO
+### 3. 启动 MySQL、Redis、Qdrant 和 MinIO
 
 ```bash
 docker compose \
   --env-file backend/.env \
   --env-file infra/.env \
   -f infra/compose.dev.yaml \
-  up -d --wait mysql redis minio
+  up -d --wait mysql redis qdrant minio
 ```
 
 使用一次性 MinIO Client 容器创建 Bucket、应用账号和最小权限 Policy：
@@ -240,7 +240,7 @@ docker compose \
   down
 ```
 
-普通 `down` 会保留 MySQL、Redis 和 MinIO 的 Named Volume。只有明确需要删除本地数据时，才使用 `down -v`。
+普通 `down` 会保留 MySQL、Redis、Qdrant 和 MinIO 的 Named Volume。只有明确需要删除本地数据时，才使用 `down -v`。
 
 ## 项目文档
 
