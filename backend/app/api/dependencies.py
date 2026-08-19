@@ -8,6 +8,13 @@ from sqlalchemy.orm import Session
 from app.ai.factory import get_chat_provider
 from app.ai.gateway import AIGateway
 from app.ai.prompt_center import PromptCenter, get_prompt_center
+from app.knowledge import (
+    ChunkingConfig,
+    StructureAwareChunker,
+    TiktokenTokenCounter,
+    build_default_parser_registry,
+    resolve_default_embedding_profile,
+)
 from app.core.config import settings
 from app.core.exceptions import InvalidAccessTokenError
 from app.db.redis_client import redis_client
@@ -16,7 +23,10 @@ from app.db.session import SessionLocal, get_db
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.file_service import FileService
-from app.services.knowledge_service import KnowledgeService
+from app.services.knowledge_service import (
+    KnowledgeIndexingComponents,
+    KnowledgeService,
+)
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
@@ -76,6 +86,40 @@ def get_knowledge_service(
     """用请求级数据库 Session 创建 KnowledgeService，供知识库 API 注入。"""
 
     return KnowledgeService(session)
+
+
+def get_knowledge_indexing_components(
+    storage_provider: Annotated[StorageProvider, Depends(get_storage_provider)],
+) -> KnowledgeIndexingComponents:
+    """
+    从 Settings 与 Storage Provider 组装 Document 预处理所需的全部运行时组件。
+
+    此函数是 Token、Chunk 配置和 Embedding Profile 的唯一来源；
+    未来 `prepare_document_version()` 通过 Depends 获得此对象，而非接收客户端配置。
+    """
+
+    embedding_profile = resolve_default_embedding_profile(
+        model_configs=settings.EMBEDDING_MODELS,
+        default_model_alias=settings.EMBEDDING_DEFAULT_MODEL_ALIAS,
+    )
+    chunking_config = ChunkingConfig(
+        max_tokens=settings.KNOWLEDGE_CHUNK_MAX_TOKENS,
+        overlap_tokens=settings.KNOWLEDGE_CHUNK_OVERLAP_TOKENS,
+    )
+    token_counter = TiktokenTokenCounter(
+        encoding_name=embedding_profile.tokenizer_encoding,
+    )
+    chunker = StructureAwareChunker(
+        config=chunking_config,
+        token_counter=token_counter,
+    )
+    return KnowledgeIndexingComponents(
+        storage_provider=storage_provider,
+        parser_registry=build_default_parser_registry(),
+        chunker=chunker,
+        chunking_config=chunking_config,
+        embedding_profile=embedding_profile,
+    )
 
 
 def get_ai_gateway() -> AIGateway:
