@@ -29,6 +29,7 @@ from app.services.auth_service import AuthService
 from app.services.file_service import FileService
 from app.services.knowledge_service import (
     KnowledgeIndexingComponents,
+    KnowledgeRetrievalComponents,
     KnowledgeService,
 )
 from app.services.login_rate_limiter import LoginRateLimiter
@@ -147,6 +148,48 @@ async def get_knowledge_indexing_components(
         yield components
     finally:
         # AsyncQdrantClient 持有 HTTP 连接池；请求结束必须关闭，避免长期运行时泄漏连接。
+        await qdrant_client.close()
+
+
+async def get_knowledge_retrieval_components() -> AsyncIterator[
+    KnowledgeRetrievalComponents
+]:
+    """
+    从 Settings 和 Provider Factory 组装一次请求的知识检索运行时组件。
+
+    Query Embedding 与入库 Embedding 使用同一个默认 Profile；VectorStore 只接收服务器的
+    Top K、预取倍率和分数阈值。请求结束后关闭 AsyncQdrantClient，避免连接池泄漏。
+    """
+
+    embedding_profile = resolve_default_embedding_profile(
+        model_configs=settings.EMBEDDING_MODELS,
+        default_model_alias=settings.EMBEDDING_DEFAULT_MODEL_ALIAS,
+    )
+    qdrant_client = AsyncQdrantClient(
+        url=str(settings.QDRANT_URL),
+        timeout=settings.QDRANT_TIMEOUT_SECONDS,
+    )
+    vector_store: VectorStore = QdrantVectorStore(
+        client=qdrant_client,
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+        vector_dimension=embedding_profile.dimension,
+    )
+    components = KnowledgeRetrievalComponents(
+        embedding_profile=embedding_profile,
+        embedding_gateway=EmbeddingGateway(
+            model_configs=settings.EMBEDDING_MODELS,
+            default_model_alias=settings.EMBEDDING_DEFAULT_MODEL_ALIAS,
+            provider_factory=get_embedding_provider,
+            total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
+        ),
+        vector_store=vector_store,
+        top_k=settings.KNOWLEDGE_RETRIEVAL_TOP_K,
+        candidate_multiplier=settings.KNOWLEDGE_RETRIEVAL_CANDIDATE_MULTIPLIER,
+        score_threshold=settings.KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD,
+    )
+    try:
+        yield components
+    finally:
         await qdrant_client.close()
 
 

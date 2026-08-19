@@ -59,7 +59,7 @@
 
 ```text
 题库结构与分配：已完成
-正式完整答案：26 / 100
+正式完整答案：27 / 100
 
 Sprint 1 项目实现：已完成
 Sprint 1 面试答案：待根据现有代码和 ADR 回填 10 道
@@ -73,8 +73,8 @@ Sprint 3 面试答案：8 / 8，项目证据已同步
 Sprint 4 项目实现：已完成
 Sprint 4 面试答案：10 / 10，项目证据已同步
 
-Sprint 5 项目实现：5.1 至 5.6 已完成，5.7 至 5.9 未开始
-Sprint 5 面试答案：8 / 12；检索、Citation、质量评估与 RAG 闭环题目待对应实现后补充
+Sprint 5 项目实现：5.1 至 5.7 已完成，5.8 至 5.9 未开始
+Sprint 5 面试答案：9 / 12；Citation、质量评估与 RAG 闭环题目待对应实现后补充
 ```
 
 不暂停当前 Sprint 去一次性补写 Sprint 1/2 的 20 道历史答案。Sprint 4 推进期间可以额外回填少量历史问题；新的 Sprint 4 面试题必须在对应 Story Review 时同步完成，避免继续产生欠账。
@@ -1327,9 +1327,56 @@ pending/processing/failed/cleanup_required、无原子认领，也不知道向�
 `理解 / 能讲`：同步状态机与未来异步边界已明确（2026-08-19）。
 `能写`：当前同步索引已实现；Worker/队列待 Sprint 10。
 
+### Q9. Dense Retrieval 的 Top K、Score、Threshold 与 KnowledgeBase Metadata Filter 如何协作？
+
+**30 秒简答**
+
+Dense Retrieval 先把 Query 转为 Vector，在 Qdrant 中按 `knowledge_base_id` 过滤并取分数
+最高的候选。Top K 限制最终返回数量，threshold 去掉低相关候选；但 Qdrant 候选不能直接
+返回，项目还会在 MySQL 确认 Chunk 属于 active/indexed Version 且 File 仍 READY。
+
+**2 分钟完整回答**
+
+`score` 表示 Query Vector 与 Chunk Vector 在同一 Embedding 空间中的 Cosine 相似度，不是
+事实正确率，也不能跨不兼容模型直接比较。`threshold` 是最小相关性门槛，减少把无关文本
+塞进后续 Prompt；Top K 是最终最多需要多少块。两者均由服务端 Settings 控制，客户端不能
+为了得到更多文本自行增大 K 或降低阈值。
+
+项目在 Qdrant 使用 Base ID payload 先过滤候选，并预取 `top_k * candidate_multiplier`。因为
+Qdrant 可能仍有旧 Version 点，Repository 再通过 `Document.active_version_id`、indexed
+Version 与 READY File 回填有效 Chunk，Service 按 Qdrant score 恢复顺序并最多返回 Top K。
+这条 MySQL 校验链是权限与版本正确性的最终保障；空结果是合法检索结果，Qdrant 不可用则
+明确返回 503。
+
+**项目中的设计或代码证据**
+
+- `KnowledgeService.search_knowledge()` 编排 Query Embedding、候选搜索与 MySQL 回填。
+- `QdrantVectorStore.search()` 使用 `knowledge_base_id` Filter 和 server score threshold。
+- `KnowledgeRepository.list_active_chunks_by_ids()` 校验 active/indexed Version 与 READY File。
+- ADR-0031 固化候选与业务真相边界。
+
+**为什么没有采用其他方案**
+
+- 不只依赖 Qdrant payload，避免旧 Version 或删除文件的内容进入结果。
+- 不让客户端控制 K、threshold 或模型，避免成本和 Context 预算失控。
+
+**常见追问**
+
+- 为什么实际结果数可能少于 Top K？
+- score threshold 如何用真实数据调优？
+
+**容易说错的地方**
+
+- 高 score 不表示回答一定正确，只表示向量空间中的相似候选。
+- Metadata Filter 缩小检索范围，不替代 MySQL 的权限和生命周期判断。
+
+**掌握状态**
+
+`理解 / 能写`：Dense Retrieval、Base Filter、active Version 回填和 503 语义已实现（2026-08-19）。
+`能讲 / 能画`：待画出 Qdrant 候选被 MySQL 过滤的路径。
+
 ### 待后续 Story 补充的 Sprint 5 题目
 
-- Q9：Dense Retrieval 的 Top K、Score、Threshold 与 KnowledgeBase Metadata Filter。
 - Q10：Citation、Context Token Budget 与 Prompt 注入边界。
 - Q11：如何评价 Retrieval Recall、Answer Faithfulness 和 Citation Accuracy。
 - Q12：Dense、Sparse、Hybrid、Reranker 和 Query Rewrite 的演进取舍。

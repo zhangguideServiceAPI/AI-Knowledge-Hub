@@ -26,6 +26,14 @@ class KnowledgeVersionRetryError(Exception):
     """DocumentVersion cannot be retried safely because vector cleanup is unavailable."""
 
 
+class KnowledgeRetrievalError(Exception):
+    """Knowledge retrieval could not be completed because of an internal contract error."""
+
+
+class KnowledgeRetrievalUnavailableError(Exception):
+    """Knowledge retrieval cannot reach the vector database at the moment."""
+
+
 class VectorStoreInputError(Exception):
     """写入向量库的 Point、向量维度或 Version ID 不符合存储契约。"""
 

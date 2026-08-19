@@ -7,6 +7,7 @@ from app.models.document_version import DocumentVersion, DocumentVersionStatus
 from app.models.file_resource import FileResource, FileStatus
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument
+from app.knowledge.retrieval import ActiveChunk
 
 
 class KnowledgeRepository:
@@ -383,3 +384,55 @@ class KnowledgeRepository:
             .where(DocumentChunk.document_version_id == document_version_id)
         )
         return int(count or 0)
+
+    def list_active_chunks_by_ids(
+        self,
+        *,
+        knowledge_base_id: str,
+        chunk_ids: tuple[str, ...],
+    ) -> tuple[ActiveChunk, ...]:
+        """
+        从 MySQL 回填指定知识库当前 active Version 中仍可检索的 Chunk。
+
+        输入是 Qdrant 返回的候选 Chunk ID；查询同时确认 KnowledgeBase、Document 的
+        active_version_id、indexed Version 与 READY File。返回值不承诺 Qdrant 排序，
+        Service 必须按原候选分数重建顺序。空 ID 集合不执行 SQL。
+        """
+
+        if not chunk_ids:
+            return ()
+
+        statement = (
+            select(
+                DocumentChunk,
+                KnowledgeDocument.id,
+                KnowledgeDocument.file_id,
+            )
+            .join(
+                DocumentVersion,
+                DocumentChunk.document_version_id == DocumentVersion.id,
+            )
+            .join(
+                KnowledgeDocument,
+                DocumentVersion.document_id == KnowledgeDocument.id,
+            )
+            .join(FileResource, KnowledgeDocument.file_id == FileResource.id)
+            .where(
+                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                KnowledgeDocument.active_version_id == DocumentVersion.id,
+                DocumentVersion.status == DocumentVersionStatus.INDEXED.value,
+                DocumentChunk.id.in_(chunk_ids),
+                FileResource.status == FileStatus.READY.value,
+                FileResource.deleted_at.is_(None),
+            )
+        )
+        return tuple(
+            ActiveChunk(
+                chunk_id=chunk.id,
+                document_id=document_id,
+                file_id=file_id,
+                content=chunk.content,
+                source_locator=chunk.source_locator,
+            )
+            for chunk, document_id, file_id in self._session.execute(statement)
+        )

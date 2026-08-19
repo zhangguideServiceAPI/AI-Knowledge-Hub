@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 5 Knowledge / RAG (in progress)
-Current Story: Story 5.7 Retrieval design
+Current Story: Story 5.8 Citation & Context design
 Current Goal:
-  - Retrieve relevant indexed Chunks from one owned KnowledgeBase
-  - Prepare Context and Citation inputs without bypassing MySQL ownership or AI Gateway
+  - Build token-budgeted Context and Citation from validated RetrievalHit results
+  - Preserve MySQL ownership and source traceability before ChatService integration
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -198,9 +198,10 @@ Completed:
   - Knowledge domain models, migrations and parsing/chunking contracts
   - Embedding Gateway, Qdrant VectorStore adapter and local Qdrant Compose service
   - Synchronous upload-to-index pipeline with Version state, compensation and retry
+  - Dense Retrieval with Query Embedding, Qdrant base filtering and MySQL active-Version validation
 
 Not Started:
-  - Knowledge retrieval, Context and Citation
+  - Context and Citation
   - RAG ChatService integration and Sprint 5 final verification
 ```
 
