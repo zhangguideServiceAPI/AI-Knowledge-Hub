@@ -17,13 +17,14 @@ from app.knowledge import (
     ParsedDocument,
     build_processing_fingerprint,
 )
-from app.knowledge.vector_store import VectorStore
+from app.knowledge.vector_store import VectorPoint, VectorStore
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
     KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
     KnowledgeVersionWriteError,
+    VectorStoreInputError,
 )
 from app.models.document_chunk import DocumentChunk
 from app.models.document_version import DocumentVersion, DocumentVersionStatus
@@ -359,6 +360,53 @@ class KnowledgeService:
             )
 
         return tuple(chunk_vectors)
+
+    def build_vector_points(
+        self,
+        *,
+        document: KnowledgeDocument,
+        version: DocumentVersion,
+        chunks: tuple[DocumentChunk, ...],
+        chunk_vectors: tuple[ChunkVector, ...],
+    ) -> tuple[VectorPoint, ...]:
+        """
+        将一个 DocumentVersion 的 Chunk 与 Embedding 结果配对为 VectorStore 输入。
+
+        输入来自同一条索引链路：Document 提供知识库范围，Version 提供清理范围，
+        Chunk 与 ChunkVector 保持一一对应。返回的 VectorPoint 仅在内存中，不调用
+        Qdrant、不写 MySQL。关系、数量或顺序不一致时立即失败，避免把向量写入错误
+        的知识库或 Version。
+        """
+
+        if version.document_id != document.id:
+            raise VectorStoreInputError(
+                "Document version does not belong to the supplied document."
+            )
+        if len(chunks) != len(chunk_vectors):
+            raise VectorStoreInputError(
+                "Chunk count does not match embedding vector count."
+            )
+
+        vector_points: list[VectorPoint] = []
+        for chunk, chunk_vector in zip(chunks, chunk_vectors, strict=True):
+            if chunk.document_version_id != version.id:
+                raise VectorStoreInputError(
+                    "Chunk does not belong to the supplied document version."
+                )
+            if chunk_vector.chunk_id != chunk.id:
+                raise VectorStoreInputError(
+                    "Embedding vector order does not match document chunk order."
+                )
+            vector_points.append(
+                VectorPoint(
+                    chunk_id=chunk.id,
+                    vector=chunk_vector.vector,
+                    knowledge_base_id=document.knowledge_base_id,
+                    document_version_id=version.id,
+                )
+            )
+
+        return tuple(vector_points)
 
     def persist_chunks(
         self,
