@@ -1,4 +1,5 @@
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
 from app.models.document_chunk import DocumentChunk
@@ -173,6 +174,78 @@ class KnowledgeRepository:
             .execution_options(populate_existing=True)
         )
         return self._session.scalar(statement)
+
+    def complete_processing_version(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """
+        原子地将一个 processing Version 标记为 indexed，并返回刷新后的 Version。
+
+        只有当前仍为 processing 的 Version 可以完成；未命中时返回 None，防止重复
+        完成或覆盖失败终态。调用方负责在同一个事务中决定是否将该 Version 激活，
+        并最终 commit 或 rollback。
+        """
+
+        statement = (
+            update(DocumentVersion)
+            .where(
+                DocumentVersion.id == document_version_id,
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.status == DocumentVersionStatus.PROCESSING.value,
+            )
+            .values(
+                status=DocumentVersionStatus.INDEXED.value,
+                failure_reason=None,
+            )
+        )
+        result = self._session.execute(statement)
+        if result.rowcount != 1:
+            return None
+
+        statement = (
+            select(DocumentVersion)
+            .where(DocumentVersion.id == document_version_id)
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
+    def promote_active_version(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+        version_number: int,
+    ) -> bool:
+        """
+        仅在候选 Version 比当前 active Version 更新时，更新 Document.active_version_id。
+
+        输入 Version 已由调用方在同一事务中标记为 indexed；返回 True 表示完成激活。
+        旧 Version 晚于新 Version 完成时返回 False，保留更高版本的 active 指针，避免
+        并发索引结束顺序反转造成回退。
+        """
+
+        active_version = aliased(DocumentVersion)
+        active_version_number = (
+            select(active_version.version_number)
+            .where(active_version.id == KnowledgeDocument.active_version_id)
+            .scalar_subquery()
+        )
+        statement = (
+            update(KnowledgeDocument)
+            .where(
+                KnowledgeDocument.id == document_id,
+                or_(
+                    KnowledgeDocument.active_version_id.is_(None),
+                    active_version_number < version_number,
+                ),
+            )
+            .values(active_version_id=document_version_id)
+        )
+        result = self._session.execute(statement)
+        return result.rowcount == 1
 
     def create_chunks(self, chunks: list[DocumentChunk]) -> list[DocumentChunk]:
         """把同一 Version 的全部 Chunk 加入当前事务，暂不提交。"""
