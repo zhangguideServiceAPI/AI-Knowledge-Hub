@@ -32,3 +32,7 @@ class VectorStoreOperationError(Exception):
 
 class VectorStoreConfigurationError(Exception):
     """已存在的 Collection 配置与当前 Embedding 模型维度不兼容。"""
+
+
+class VectorStoreCleanupRequiredError(Exception):
+    """向量写入失败后，按 DocumentVersion 清理已写入向量也失败。"""

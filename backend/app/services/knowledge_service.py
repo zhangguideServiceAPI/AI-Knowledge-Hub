@@ -24,7 +24,11 @@ from app.knowledge.exceptions import (
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
     KnowledgeVersionWriteError,
+    VectorStoreCleanupRequiredError,
     VectorStoreInputError,
+    VectorStoreConfigurationError,
+    VectorStoreOperationError,
+    VectorStoreUnavailableError,
 )
 from app.models.document_chunk import DocumentChunk
 from app.models.document_version import DocumentVersion, DocumentVersionStatus
@@ -53,6 +57,7 @@ class KnowledgeIndexingComponents:
     embedding_profile: EmbeddingProfile
     embedding_batch_size: int
     embedding_gateway: EmbeddingGateway
+    vector_upsert_batch_size: int
     vector_store: VectorStore
 
 
@@ -407,6 +412,86 @@ class KnowledgeService:
             )
 
         return tuple(vector_points)
+
+    async def upsert_vector_points(
+        self,
+        *,
+        document_version_id: str,
+        vector_points: tuple[VectorPoint, ...],
+        components: KnowledgeIndexingComponents,
+    ) -> None:
+        """
+        将一个 DocumentVersion 的 VectorPoint 按服务器批大小写入 VectorStore。
+
+        输入是同一 Version 的有序 VectorPoint 与服务器索引组件；空集合不执行 I/O。
+        任一批次失败后，立即按 Version ID 删除本次流程可能已经写入的向量。清理成功时
+        保留原始向量库异常；清理失败时抛出 `VectorStoreCleanupRequiredError`，让下一步
+        状态机准确标记 `cleanup_required`。本方法本身不写 MySQL 或改变 Version 状态。
+        """
+
+        if not document_version_id.strip():
+            raise VectorStoreInputError("Document version ID must be non-empty.")
+        if any(
+            point.document_version_id != document_version_id for point in vector_points
+        ):
+            raise VectorStoreInputError(
+                "All vector points must belong to the supplied document version."
+            )
+        if not vector_points:
+            return
+
+        batch_size = components.vector_upsert_batch_size
+        if batch_size <= 0:
+            raise VectorStoreInputError(
+                "Vector upsert batch size must be greater than zero."
+            )
+
+        write_started = False
+        try:
+            for start in range(0, len(vector_points), batch_size):
+                write_started = True
+                await components.vector_store.upsert(
+                    points=vector_points[start : start + batch_size]
+                )
+        except (
+            VectorStoreConfigurationError,
+            VectorStoreInputError,
+            VectorStoreOperationError,
+            VectorStoreUnavailableError,
+        ):
+            if write_started:
+                await self._cleanup_failed_vector_write(
+                    document_version_id=document_version_id,
+                    vector_store=components.vector_store,
+                )
+            raise
+
+    async def _cleanup_failed_vector_write(
+        self,
+        *,
+        document_version_id: str,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        尝试删除一个失败写入流程已产生的全部 Version 向量。
+
+        此私有方法只负责 Qdrant 补偿，不修改 MySQL 状态。清理异常会转换为明确的
+        `VectorStoreCleanupRequiredError`，由上层索引状态机把 Version 留在可重试状态。
+        """
+
+        try:
+            await vector_store.delete_by_document_version(
+                document_version_id=document_version_id
+            )
+        except (
+            VectorStoreConfigurationError,
+            VectorStoreInputError,
+            VectorStoreOperationError,
+            VectorStoreUnavailableError,
+        ) as error:
+            raise VectorStoreCleanupRequiredError(
+                "Vector write failed and Qdrant cleanup also failed."
+            ) from error
 
     def persist_chunks(
         self,

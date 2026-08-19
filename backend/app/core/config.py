@@ -210,6 +210,8 @@ class Settings(BaseSettings):
     KNOWLEDGE_CHUNK_OVERLAP_TOKENS: int = Field(default=120, ge=0)
     # 一次发送给 Embedding Provider 的 Chunk 数；批大小不改变向量内容，因此不参与 Version 指纹。
     KNOWLEDGE_EMBEDDING_BATCH_SIZE: PositiveInt = 32
+    # 一次写入 Qdrant 的 Point 数；它独立于模型 API 限制，也不参与 Version 指纹。
+    KNOWLEDGE_VECTOR_UPSERT_BATCH_SIZE: PositiveInt = 128
 
     # Qdrant 是独立的向量检索服务；业务真相仍保存在 MySQL。
     QDRANT_URL: AnyHttpUrl = "http://127.0.0.1:6333"
