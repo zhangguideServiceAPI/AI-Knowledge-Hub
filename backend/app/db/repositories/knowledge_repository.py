@@ -1,8 +1,8 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.document_chunk import DocumentChunk
-from app.models.document_version import DocumentVersion
+from app.models.document_version import DocumentVersion, DocumentVersionStatus
 from app.models.file_resource import FileResource, FileStatus
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument
@@ -133,6 +133,46 @@ class KnowledgeRepository:
         self._session.flush()
         self._session.refresh(version)
         return version
+
+    def claim_pending_version(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """
+        原子地将一个 pending Version 认领为 processing，防止重复索引。
+
+        只有 ID、所属 Document 与当前状态同时匹配时才更新；成功返回已刷新状态的
+        Version，未命中返回 None。调用方负责 commit 或 rollback，此方法不执行
+        网络 I/O，也不读取或修改 Chunk、Qdrant 与 active_version_id。
+        """
+
+        # 单条带 status 条件的 UPDATE 是 compare-and-set：并发请求中只有一个 rowcount 为 1。
+        statement = (
+            update(DocumentVersion)
+            .where(
+                DocumentVersion.id == document_version_id,
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.status == DocumentVersionStatus.PENDING.value,
+            )
+            .values(
+                status=DocumentVersionStatus.PROCESSING.value,
+                # processing 不是失败状态，必须清除旧的失败原因以满足数据库 CheckConstraint。
+                failure_reason=None,
+            )
+        )
+        result = self._session.execute(statement)
+        if result.rowcount != 1:
+            return None
+
+        statement = (
+            select(DocumentVersion)
+            .where(DocumentVersion.id == document_version_id)
+            # 强制从数据库读取，避免 Session Identity Map 返回更新前的旧对象状态。
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
 
     def create_chunks(self, chunks: list[DocumentChunk]) -> list[DocumentChunk]:
         """把同一 Version 的全部 Chunk 加入当前事务，暂不提交。"""
