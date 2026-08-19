@@ -5,6 +5,7 @@ from app.api.auth import router as auth_router
 from app.api.exception_handlers import register_exception_handlers
 from app.api.files import router as files_router
 from app.api.health import router as health_router
+from app.api.knowledge import router as knowledge_router
 from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.logging import logger, setup_logging
@@ -20,5 +21,6 @@ logger.info("Application started")
 app.include_router(auth_router)
 app.include_router(files_router)
 app.include_router(health_router)
+app.include_router(knowledge_router)
 app.include_router(user_router)
 app.include_router(ai_router)

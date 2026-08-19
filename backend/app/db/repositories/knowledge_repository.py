@@ -90,6 +90,15 @@ class KnowledgeRepository:
         self._session.refresh(document)
         return document
 
+    def create_base(self, knowledge_base: KnowledgeBase) -> KnowledgeBase:
+        """将新 KnowledgeBase 加入当前事务并刷新数据库生成的默认字段。"""
+
+        self._session.add(knowledge_base)
+        # flush 发送 INSERT 但不提交；refresh 重新读取 UUID、created_at 等数据库字段。
+        self._session.flush()
+        self._session.refresh(knowledge_base)
+        return knowledge_base
+
     def get_version_by_fingerprint(
         self,
         *,

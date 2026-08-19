@@ -6,12 +6,14 @@ from app.db.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge import ChunkDraft, Chunker, ParserRegistry
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
+    KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
     KnowledgeVersionWriteError,
 )
 from app.models.document_chunk import DocumentChunk
 from app.models.document_version import DocumentVersion, DocumentVersionStatus
+from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument
 from app.storage.exceptions import FileResourceNotFoundError
 from app.storage.provider import StorageProvider
@@ -26,6 +28,26 @@ class KnowledgeService:
         self._session = session
         self._file_repository = FileRepository(session)
         self._knowledge_repository = KnowledgeRepository(session)
+
+    def create_base(self, *, owner_id: int, name: str) -> KnowledgeBase:
+        """
+        为当前用户创建一个主动管理的 KnowledgeBase。
+
+        输入是已认证用户 ID 与已经由 API Schema 清理过的名称；
+        返回已提交的 KnowledgeBase。此方法不创建 Document、不上传文件，
+        也不启动解析或索引流程。
+        """
+
+        knowledge_base = KnowledgeBase(owner_id=owner_id, name=name)
+        try:
+            self._knowledge_repository.create_base(knowledge_base)
+            self._session.commit()
+        except SQLAlchemyError as error:
+            # commit 失败后必须 rollback，才能让同一个请求的 Session 恢复可用。
+            self._session.rollback()
+            raise KnowledgeBaseWriteError() from error
+
+        return knowledge_base
 
     def add_file_to_base(
         self,
