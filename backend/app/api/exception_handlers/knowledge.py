@@ -9,6 +9,8 @@ from app.knowledge.exceptions import (
     KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
+    KnowledgeVersionNotFoundError,
+    KnowledgeVersionRetryError,
     KnowledgeVersionWriteError,
 )
 from app.knowledge.parsing import ParsingError
@@ -95,6 +97,39 @@ async def knowledge_version_write_error_handler(
     )
 
 
+async def knowledge_version_not_found_handler(
+    _request: Request,
+    _error: KnowledgeVersionNotFoundError,
+) -> JSONResponse:
+    """将不存在或不属于当前 Document 的 Version 统一隐藏为 404 响应。"""
+
+    response = ErrorResponse(detail="Document version not found.")
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content=response.model_dump(),
+    )
+
+
+async def knowledge_version_retry_error_handler(
+    request: Request,
+    _error: KnowledgeVersionRetryError,
+) -> JSONResponse:
+    """Qdrant 清理不可用时返回 503，要求客户端稍后重试同一 Version。"""
+
+    logger.warning(
+        "knowledge.version.retry.deferred method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(
+        detail="Document version cleanup is temporarily unavailable."
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
+    )
+
+
 async def parsing_error_handler(
     request: Request,
     error: ParsingError,
@@ -138,5 +173,13 @@ def register_knowledge_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         KnowledgeVersionWriteError,
         knowledge_version_write_error_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeVersionNotFoundError,
+        knowledge_version_not_found_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeVersionRetryError,
+        knowledge_version_retry_error_handler,
     )
     app.add_exception_handler(ParsingError, parsing_error_handler)

@@ -115,6 +115,24 @@ class KnowledgeRepository:
         )
         return self._session.scalar(statement)
 
+    def get_version_for_document(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """查询指定 Document 下的一个 Version，供 Service 校验状态和组织重试。"""
+
+        statement = (
+            select(DocumentVersion)
+            .where(
+                DocumentVersion.id == document_version_id,
+                DocumentVersion.document_id == document_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
     def get_next_version_number(self, *, document_id: str) -> int:
         """返回某个 Document 下一个可用的连续版本号。"""
 
@@ -261,6 +279,48 @@ class KnowledgeRepository:
         )
         return self._session.scalar(statement)
 
+    def requeue_failed_version(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion | None:
+        """
+        原子地将 failed 或 cleanup_required Version 重新置为 pending。
+
+        调用方必须先完成 cleanup_required 对应的 Qdrant 清理；本方法仅负责 MySQL
+        状态迁移。并发请求中只有一个可以成功重置，未命中时返回 None，调用方应读取
+        当前状态而不是重复修改。
+        """
+
+        statement = (
+            update(DocumentVersion)
+            .where(
+                DocumentVersion.id == document_version_id,
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.status.in_(
+                    (
+                        DocumentVersionStatus.FAILED.value,
+                        DocumentVersionStatus.CLEANUP_REQUIRED.value,
+                    )
+                ),
+            )
+            .values(
+                status=DocumentVersionStatus.PENDING.value,
+                failure_reason=None,
+            )
+        )
+        result = self._session.execute(statement)
+        if result.rowcount != 1:
+            return None
+
+        statement = (
+            select(DocumentVersion)
+            .where(DocumentVersion.id == document_version_id)
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
     def promote_active_version(
         self,
         *,
@@ -313,3 +373,13 @@ class KnowledgeRepository:
             .order_by(DocumentChunk.chunk_index)
         )
         return tuple(self._session.scalars(statement))
+
+    def count_chunks(self, *, document_version_id: str) -> int:
+        """返回一个 Version 的 Chunk 数量，避免 API 为计数读取全部原文内容。"""
+
+        count = self._session.scalar(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .where(DocumentChunk.document_version_id == document_version_id)
+        )
+        return int(count or 0)
