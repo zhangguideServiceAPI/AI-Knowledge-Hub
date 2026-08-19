@@ -22,6 +22,8 @@ from app.ai.provider import (
     ChatEvent,
     ChatResult,
     ChatUsageEvent,
+    ProviderEmbeddingRequest,
+    ProviderEmbeddingResult,
     FinishReason,
     ProviderChatRequest,
     TokenUsage,
@@ -180,3 +182,53 @@ class OpenAICompatibleChatProvider:
         finally:
             if sdk_stream is not None:
                 await sdk_stream.close()
+
+
+class OpenAICompatibleEmbeddingProvider:
+    """使用 OpenAI-compatible `/embeddings` API 处理一批文本。"""
+
+    def __init__(self, client: AsyncOpenAI) -> None:
+        """保存已配置认证、Base URL 与超时的异步 OpenAI 客户端。"""
+
+        self._client = client
+
+    async def embed(
+        self,
+        request: ProviderEmbeddingRequest,
+    ) -> ProviderEmbeddingResult:
+        """请求 Provider Embedding API，并按响应 index 恢复与输入相同的文本顺序。"""
+
+        try:
+            response = await self._client.embeddings.create(
+                model=request.provider_model,
+                input=list(request.texts),
+            )
+        except APIError as error:
+            raise _translate_sdk_error(error) from error
+
+        response_data = getattr(response, "data", None)
+        if not isinstance(response_data, (list, tuple)):
+            raise ProviderError("Provider returned a malformed embedding response.")
+        if len(response_data) != len(request.texts):
+            raise ProviderError("Provider returned an unexpected embedding count.")
+
+        indexed_vectors: list[tuple[int, tuple[float, ...]]] = []
+        for item in response_data:
+            index = getattr(item, "index", None)
+            vector = getattr(item, "embedding", None)
+            if not isinstance(index, int) or not isinstance(vector, (list, tuple)):
+                raise ProviderError("Provider returned a malformed embedding item.")
+            if not all(isinstance(value, (float, int)) for value in vector):
+                raise ProviderError("Provider returned a non-numeric embedding value.")
+            indexed_vectors.append((index, tuple(float(value) for value in vector)))
+
+        indexed_vectors.sort(key=lambda item: item[0])
+        if [index for index, _vector in indexed_vectors] != list(
+            range(len(request.texts))
+        ):
+            raise ProviderError("Provider returned invalid embedding indexes.")
+
+        return ProviderEmbeddingResult(
+            request_id=request.request_id,
+            vectors=tuple(vector for _index, vector in indexed_vectors),
+        )
