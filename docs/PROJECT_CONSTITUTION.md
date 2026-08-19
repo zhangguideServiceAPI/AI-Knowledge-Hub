@@ -168,11 +168,11 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint 4 AI Gateway (completed)
-Current Story: Sprint 4 closeout complete
+Current Sprint: Sprint 5 Knowledge / RAG (in progress)
+Current Story: Story 5.7 Retrieval design
 Current Goal:
-  - Preserve the completed AI Gateway boundary
-  - Prepare Sprint 5 Knowledge / RAG without bypassing File Resource or AI Gateway
+  - Retrieve relevant indexed Chunks from one owned KnowledgeBase
+  - Prepare Context and Citation inputs without bypassing MySQL ownership or AI Gateway
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -195,9 +195,13 @@ Completed:
   - Non-stream and Streaming success/failed/cancelled Usage with Latency and TTFT
   - Optional Decimal cost snapshots with currency and pricing version
   - ADR-0025 through ADR-0029 and Sprint-level lifecycle verification
+  - Knowledge domain models, migrations and parsing/chunking contracts
+  - Embedding Gateway, Qdrant VectorStore adapter and local Qdrant Compose service
+  - Synchronous upload-to-index pipeline with Version state, compensation and retry
 
 Not Started:
-  - Knowledge / RAG implementation
+  - Knowledge retrieval, Context and Citation
+  - RAG ChatService integration and Sprint 5 final verification
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。
