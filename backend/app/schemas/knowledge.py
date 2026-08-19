@@ -44,3 +44,14 @@ class KnowledgeDocumentResponse(BaseModel):
     active_version_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentVersionPrepareResponse(BaseModel):
+    """系统完成解析和分块后返回的待索引 Version 摘要。"""
+
+    id: UUID
+    document_id: UUID
+    version_number: int
+    status: str
+    chunk_count: int
+    created_at: datetime

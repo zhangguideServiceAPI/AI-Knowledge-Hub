@@ -7,8 +7,11 @@ from app.core.logging import logger
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
     KnowledgeBaseWriteError,
+    KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
+    KnowledgeVersionWriteError,
 )
+from app.knowledge.parsing import ParsingError
 from app.schemas.error import ErrorResponse
 
 
@@ -61,6 +64,58 @@ async def knowledge_document_write_error_handler(
     )
 
 
+async def knowledge_document_not_found_handler(
+    _request: Request,
+    _error: KnowledgeDocumentNotFoundError,
+) -> JSONResponse:
+    """将不存在或不属于当前用户的 Document 统一隐藏为 404 响应。"""
+
+    response = ErrorResponse(detail="Knowledge document not found.")
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content=response.model_dump(),
+    )
+
+
+async def knowledge_version_write_error_handler(
+    request: Request,
+    _error: KnowledgeVersionWriteError,
+) -> JSONResponse:
+    """记录 Version/Chunk 事务写入失败，并返回不含数据库细节的 500 响应。"""
+
+    logger.error(
+        "knowledge.version.write.failed method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    response = ErrorResponse(detail="Document version could not be prepared.")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response.model_dump(),
+    )
+
+
+async def parsing_error_handler(
+    request: Request,
+    error: ParsingError,
+) -> JSONResponse:
+    """记录文件解析失败类型，并返回不泄露 Parser 实现细节的 422 响应。"""
+
+    logger.info(
+        "knowledge.document.parse.rejected method=%s path=%s error_type=%s",
+        request.method,
+        request.url.path,
+        type(error).__name__,
+    )
+    response = ErrorResponse(
+        detail="File content could not be parsed into knowledge chunks."
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=response.model_dump(),
+    )
+
+
 def register_knowledge_exception_handlers(app: FastAPI) -> None:
     """向 FastAPI 注册目前 Knowledge 元数据写入相关的异常映射。"""
 
@@ -76,3 +131,12 @@ def register_knowledge_exception_handlers(app: FastAPI) -> None:
         KnowledgeDocumentWriteError,
         knowledge_document_write_error_handler,
     )
+    app.add_exception_handler(
+        KnowledgeDocumentNotFoundError,
+        knowledge_document_not_found_handler,
+    )
+    app.add_exception_handler(
+        KnowledgeVersionWriteError,
+        knowledge_version_write_error_handler,
+    )
+    app.add_exception_handler(ParsingError, parsing_error_handler)
