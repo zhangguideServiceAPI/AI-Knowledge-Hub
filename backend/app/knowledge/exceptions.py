@@ -16,3 +16,19 @@ class KnowledgeDocumentNotFoundError(Exception):
 
 class KnowledgeVersionWriteError(Exception):
     """DocumentVersion or its chunks could not be committed."""
+
+
+class VectorStoreInputError(Exception):
+    """写入向量库的 Point、向量维度或 Version ID 不符合存储契约。"""
+
+
+class VectorStoreUnavailableError(Exception):
+    """向量数据库暂时不可连接、超时或无法处理响应。"""
+
+
+class VectorStoreOperationError(Exception):
+    """向量库拒绝执行写入、删除或 Collection 初始化操作。"""
+
+
+class VectorStoreConfigurationError(Exception):
+    """已存在的 Collection 配置与当前 Embedding 模型维度不兼容。"""
