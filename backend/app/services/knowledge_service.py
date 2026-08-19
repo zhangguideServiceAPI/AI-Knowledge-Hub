@@ -1,0 +1,231 @@
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from app.db.repositories.file_repository import FileRepository
+from app.db.repositories.knowledge_repository import KnowledgeRepository
+from app.knowledge import ChunkDraft, Chunker, ParserRegistry
+from app.knowledge.exceptions import (
+    KnowledgeBaseNotFoundError,
+    KnowledgeDocumentNotFoundError,
+    KnowledgeDocumentWriteError,
+    KnowledgeVersionWriteError,
+)
+from app.models.document_chunk import DocumentChunk
+from app.models.document_version import DocumentVersion, DocumentVersionStatus
+from app.models.knowledge_document import KnowledgeDocument
+from app.storage.exceptions import FileResourceNotFoundError
+from app.storage.provider import StorageProvider
+
+
+class KnowledgeService:
+    """Owns business operations that connect FileResource and Knowledge models."""
+
+    def __init__(self, session: Session) -> None:
+        """用同一个数据库 Session 组装 File 与 Knowledge 仓储，保持一次业务操作的事务边界。"""
+
+        self._session = session
+        self._file_repository = FileRepository(session)
+        self._knowledge_repository = KnowledgeRepository(session)
+
+    def add_file_to_base(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        file_id: str,
+    ) -> KnowledgeDocument:
+        """
+        将一个当前用户的 READY FileResource 加入其 KnowledgeBase。
+
+        输入是所有者、知识库和文件 ID；返回新建或已存在的 Document。
+        本方法仅建立 File 与知识库的管理关系，不解析文件、不生成 Chunk 或向量。
+        """
+
+        # 先按 owner_id 查询，避免只凭任意 UUID 把其他用户的知识库或文件关联进来。
+        knowledge_base = self._knowledge_repository.get_owned_base(
+            knowledge_base_id=knowledge_base_id,
+            owner_id=owner_id,
+        )
+        if knowledge_base is None:
+            raise KnowledgeBaseNotFoundError()
+
+        # FileRepository.get_owned 同时检查 owner、READY 状态和 deleted_at；
+        # 非 READY 文件不能进入后续解析流程。
+        file_resource = self._file_repository.get_owned(
+            file_id=file_id,
+            owner_id=owner_id,
+        )
+        if file_resource is None:
+            raise FileResourceNotFoundError()
+
+        existing_document = self._knowledge_repository.get_document_by_base_and_file(
+            knowledge_base_id=knowledge_base.id,
+            file_id=file_resource.id,
+        )
+        if existing_document is not None:
+            # 重复请求保持幂等：不创建第二个 Document，也不会再次触发索引。
+            return existing_document
+
+        document = KnowledgeDocument(
+            knowledge_base_id=knowledge_base.id,
+            file_id=file_resource.id,
+        )
+        try:
+            self._knowledge_repository.create_document(document)
+            # commit 才真正提交事务；在它成功前，其他连接看不到这条 Document。
+            self._session.commit()
+        except IntegrityError as error:
+            # 并发请求都在前面的查询中没找到 Document 时，数据库唯一约束会裁决。
+            self._session.rollback()
+            existing_document = (
+                self._knowledge_repository.get_document_by_base_and_file(
+                    knowledge_base_id=knowledge_base.id,
+                    file_id=file_resource.id,
+                )
+            )
+            if existing_document is not None:
+                return existing_document
+            raise KnowledgeDocumentWriteError() from error
+        except SQLAlchemyError as error:
+            self._session.rollback()
+            raise KnowledgeDocumentWriteError() from error
+
+        return document
+
+    def parse_and_chunk(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        storage_provider: StorageProvider,
+        parser_registry: ParserRegistry,
+        chunker: Chunker,
+    ) -> tuple[ChunkDraft, ...]:
+        """
+        读取当前用户的 READY 文件，解析并生成尚未持久化的 ChunkDraft。
+
+        输入是 Document、存储实现、Parser 注册表和 Chunker；返回有序的内存分块。
+        本方法不写 MySQL、不生成 embedding，也不调用 Qdrant。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+
+        file_resource = self._file_repository.get_owned(
+            file_id=document.file_id,
+            owner_id=owner_id,
+        )
+        if file_resource is None:
+            raise FileResourceNotFoundError()
+
+        # open() 返回的是存储层的二进制流；Service 不关心它来自本地磁盘还是 MinIO。
+        source = storage_provider.open(file_resource.object_key)
+        try:
+            parser = parser_registry.get(file_resource.content_type)
+            parsed_document = parser.parse(
+                source,
+                content_type=file_resource.content_type,
+                original_filename=file_resource.original_filename,
+            )
+        finally:
+            # finally 无论 Parser 成功还是抛错都会执行，避免本地文件或 MinIO 流泄漏。
+            source.close()
+
+        # Chunker 只处理统一 ParsedDocument，不知道 FileResource、权限或 Storage。
+        return chunker.chunk(parsed_document)
+
+    def persist_chunks(
+        self,
+        *,
+        owner_id: int,
+        document_id: str,
+        drafts: tuple[ChunkDraft, ...],
+        processing_fingerprint: str,
+        parser_name: str,
+        parser_version: str,
+        chunker_name: str,
+        chunker_config: dict[str, object],
+        embedding_profile: str,
+        embedding_dimension: int,
+    ) -> tuple[DocumentVersion, tuple[DocumentChunk, ...]]:
+        """
+        将已分块的内存结果原子写入 MySQL。
+
+        输入是当前用户、所属 Document、多个 ChunkDraft 和完整处理配置；
+        返回新建或已复用的一条 DocumentVersion 及其有序 Chunk。
+        本方法只做 MySQL 元数据持久化，不生成 embedding、不写 Qdrant，
+        所以成功的 Version 仍停留在 pending 状态。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None:
+            raise KnowledgeDocumentNotFoundError()
+        if not drafts:
+            raise KnowledgeVersionWriteError("Cannot persist an empty chunk set.")
+
+        existing_version = self._knowledge_repository.get_version_by_fingerprint(
+            document_id=document_id,
+            processing_fingerprint=processing_fingerprint,
+        )
+        if existing_version is not None:
+            # 同一套 Parser/Chunker/Embedding 配置已经处理过，直接复用 Version。
+            existing_chunks = self._knowledge_repository.list_chunks(
+                document_version_id=existing_version.id
+            )
+            return existing_version, existing_chunks
+
+        version = DocumentVersion(
+            document_id=document_id,
+            version_number=self._knowledge_repository.get_next_version_number(
+                document_id=document_id
+            ),
+            processing_fingerprint=processing_fingerprint,
+            parser_name=parser_name,
+            parser_version=parser_version,
+            chunker_name=chunker_name,
+            chunker_config=chunker_config,
+            embedding_profile=embedding_profile,
+            embedding_dimension=embedding_dimension,
+            status=DocumentVersionStatus.PENDING.value,
+        )
+        try:
+            self._knowledge_repository.create_version(version)
+            # UUID 的 default 在 flush 时执行；必须先 flush Version，Chunk 才能取得 version.id。
+            chunks = tuple(
+                DocumentChunk(
+                    document_version_id=version.id,
+                    chunk_index=chunk_index,
+                    content=draft.content,
+                    token_count=draft.token_count,
+                    source_locator=draft.source_locator,
+                )
+                for chunk_index, draft in enumerate(drafts)
+            )
+            self._knowledge_repository.create_chunks(list(chunks))
+            # Version 和所有 Chunk 必须一起提交，避免出现只有 Version 没有 Chunk 的半成品。
+            self._session.commit()
+        except IntegrityError as error:
+            self._session.rollback()
+            # 并发请求可能同时创建相同指纹；数据库唯一约束裁决后重新读取已成功的 Version。
+            existing_version = self._knowledge_repository.get_version_by_fingerprint(
+                document_id=document_id,
+                processing_fingerprint=processing_fingerprint,
+            )
+            if existing_version is not None:
+                existing_chunks = self._knowledge_repository.list_chunks(
+                    document_version_id=existing_version.id
+                )
+                return existing_version, existing_chunks
+            raise KnowledgeVersionWriteError() from error
+        except SQLAlchemyError as error:
+            self._session.rollback()
+            raise KnowledgeVersionWriteError() from error
+
+        return version, chunks

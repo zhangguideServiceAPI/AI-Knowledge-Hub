@@ -1,3 +1,4 @@
+from codecs import getincrementaldecoder
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -17,7 +18,11 @@ _ALLOWED_EXTENSIONS: dict[str, frozenset[str]] = {
     "application/pdf": frozenset({".pdf"}),
     "image/png": frozenset({".png"}),
     "image/jpeg": frozenset({".jpg", ".jpeg"}),
+    "text/plain": frozenset({".txt"}),
+    "text/markdown": frozenset({".md"}),
 }
+
+_TEXT_CONTENT_TYPES = frozenset({"text/plain", "text/markdown"})
 
 
 # @dataclass 是帮我们自动生成构造方法 frozen=True 表示创建后不能修改
@@ -77,7 +82,18 @@ def _matches_file_signature(
     if content_type == "image/jpeg":
         return prefix.startswith(b"\xff\xd8\xff")
 
+    if content_type in _TEXT_CONTENT_TYPES:
+        return True
+
     return False
+
+
+def _contains_disallowed_text_control(text: str) -> bool:
+    """判断 TXT/Markdown 是否含有除制表和换行外的控制字符。"""
+
+    return any(
+        category(character) == "Cc" and character not in "\t\n\r" for character in text
+    )
 
 
 # 参数中的单独 * 表示后面的参数必须写名字：
@@ -103,6 +119,13 @@ def inspect_upload(
     digest = sha256()
     total_size = 0
     prefix = bytearray()
+    # 增量 decoder 会保留上一个 Bytes chunk 末尾未完成的 UTF-8 多字节字符，
+    # 因此不会因为上传分块边界恰好切开中文字符而误判为非法编码。
+    text_decoder = (
+        getincrementaldecoder("utf-8-sig")()
+        if normalized_content_type in _TEXT_CONTENT_TYPES
+        else None
+    )
 
     while True:
         chunk = source.read(chunk_size)
@@ -117,6 +140,14 @@ def inspect_upload(
 
         digest.update(chunk)
 
+        if text_decoder is not None:
+            try:
+                decoded_chunk = text_decoder.decode(chunk, final=False)
+            except UnicodeDecodeError as error:
+                raise UnsupportedFileTypeError() from error
+            if _contains_disallowed_text_control(decoded_chunk):
+                raise UnsupportedFileTypeError()
+
         remaining_prefix_size = 1024 - len(prefix)
 
         if remaining_prefix_size > 0:
@@ -125,6 +156,14 @@ def inspect_upload(
 
     if total_size == 0:
         raise EmptyFileError()
+
+    if text_decoder is not None:
+        try:
+            decoded_tail = text_decoder.decode(b"", final=True)
+        except UnicodeDecodeError as error:
+            raise UnsupportedFileTypeError() from error
+        if _contains_disallowed_text_control(decoded_tail):
+            raise UnsupportedFileTypeError()
 
     if not _matches_file_signature(
         normalized_content_type,
