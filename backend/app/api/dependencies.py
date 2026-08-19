@@ -140,6 +140,7 @@ async def get_knowledge_indexing_components(
             provider_factory=get_embedding_provider,
             total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
         ),
+        vector_upsert_batch_size=settings.KNOWLEDGE_VECTOR_UPSERT_BATCH_SIZE,
         vector_store=vector_store,
     )
     try:
