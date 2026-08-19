@@ -211,6 +211,17 @@ class Settings(BaseSettings):
     # 一次发送给 Embedding Provider 的 Chunk 数；批大小不改变向量内容，因此不参与 Version 指纹。
     KNOWLEDGE_EMBEDDING_BATCH_SIZE: PositiveInt = 32
 
+    # Qdrant 是独立的向量检索服务；业务真相仍保存在 MySQL。
+    QDRANT_URL: AnyHttpUrl = "http://127.0.0.1:6333"
+    # Collection 名是所有 Knowledge Chunk 向量的物理容器，不能由客户端指定。
+    QDRANT_COLLECTION_NAME: str = Field(
+        default="knowledge_chunks",
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    QDRANT_TIMEOUT_SECONDS: PositiveFloat = 5.0
+
     # ge=0：greater than or equal，必须 >= 0
     # le=3：less than or equal，必须 <= 3
     # gt=0.0：greater than，必须 > 0.0
