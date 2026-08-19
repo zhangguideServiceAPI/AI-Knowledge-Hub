@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, status
 
 from app.api.dependencies import (
     get_current_user,
+    get_file_service,
     get_knowledge_indexing_components,
     get_knowledge_service,
 )
@@ -21,7 +22,6 @@ from app.services.knowledge_service import (
     KnowledgeService,
 )
 from app.services.file_service import FileService
-from app.api.dependencies import get_file_service
 
 
 router = APIRouter(
@@ -120,7 +120,7 @@ def add_file_to_knowledge_base(
         },
     },
 )
-def upload_file_to_knowledge_base(
+async def upload_file_to_knowledge_base(
     knowledge_base_id: str,
     upload: Annotated[UploadFile, File(...)],
     current_user: Annotated[UserResponse, Depends(get_current_user)],
@@ -132,13 +132,15 @@ def upload_file_to_knowledge_base(
     ],
 ) -> KnowledgeFileIngestionResponse:
     """
-    上传文件到一个 KnowledgeBase，并自动准备待索引 Version 与 Chunk。
+    上传文件到一个 KnowledgeBase，并同步完成 Version 与 Chunk 的索引。
 
     调用方只选择目标知识库和上传文件；File、Document、Parser、Token、Chunk、
-    Embedding Profile 和 processing_fingerprint 均由服务器按固定流程处理。
+    Embedding Profile、processing_fingerprint 与 Qdrant 写入均由服务器按固定流程处理。
+    索引失败时仍返回已保存的 File、Document 与失败 Version，客户端可据 Version 状态
+    了解后续是否需要重试或清理，而不把已成功上传的文件错误显示为失败。
     """
 
-    result = knowledge_service.ingest_file_to_base(
+    result = await knowledge_service.ingest_file_to_base(
         owner_id=current_user.id,
         knowledge_base_id=knowledge_base_id,
         original_filename=upload.filename,
