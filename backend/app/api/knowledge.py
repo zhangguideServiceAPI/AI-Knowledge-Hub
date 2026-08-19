@@ -98,6 +98,60 @@ def add_file_to_knowledge_base(
 
 
 @router.post(
+    "/{knowledge_base_id}/documents/{document_id}/versions/{document_version_id}/retry",
+    response_model=DocumentVersionResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "Invalid or missing access token.",
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "Knowledge document or version was not found.",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Document version cleanup is temporarily unavailable.",
+        },
+    },
+)
+async def retry_document_version(
+    knowledge_base_id: str,
+    document_id: str,
+    document_version_id: str,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    knowledge_service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    components: Annotated[
+        KnowledgeIndexingComponents,
+        Depends(get_knowledge_indexing_components),
+    ],
+) -> DocumentVersionResponse:
+    """
+    重新执行一个失败 DocumentVersion 的索引，并返回其最新状态。
+
+    客户端只指定已拥有知识库中的 Document 与 Version，不能直接改写状态；Service
+    负责 failed 重排队、cleanup_required 的 Qdrant 清理和后续 Embedding/索引流程。
+    """
+
+    result = await knowledge_service.retry_document_version(
+        owner_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        document_id=document_id,
+        document_version_id=document_version_id,
+        components=components,
+    )
+    return DocumentVersionResponse(
+        id=result.version.id,
+        document_id=result.version.document_id,
+        version_number=result.version.version_number,
+        status=result.version.status,
+        chunk_count=result.chunk_count,
+        created_at=result.version.created_at,
+    )
+
+
+@router.post(
     "/{knowledge_base_id}/files",
     response_model=KnowledgeFileIngestionResponse,
     status_code=status.HTTP_201_CREATED,

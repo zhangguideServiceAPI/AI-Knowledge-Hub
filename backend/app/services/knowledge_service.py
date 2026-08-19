@@ -24,6 +24,8 @@ from app.knowledge.exceptions import (
     KnowledgeBaseWriteError,
     KnowledgeDocumentNotFoundError,
     KnowledgeDocumentWriteError,
+    KnowledgeVersionNotFoundError,
+    KnowledgeVersionRetryError,
     KnowledgeVersionWriteError,
     VectorStoreCleanupRequiredError,
     VectorStoreInputError,
@@ -83,6 +85,14 @@ class KnowledgeIngestionResult:
     document: KnowledgeDocument
     version: DocumentVersion
     chunks: tuple[DocumentChunk, ...]
+
+
+@dataclass(frozen=True)
+class KnowledgeVersionRetryResult:
+    """一次重试完成后返回给 API 的 Version 状态和稳定 Chunk 数量。"""
+
+    version: DocumentVersion
+    chunk_count: int
 
 
 class KnowledgeService:
@@ -543,6 +553,93 @@ class KnowledgeService:
 
         return version
 
+    async def retry_document_version(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        document_id: str,
+        document_version_id: str,
+        components: KnowledgeIndexingComponents,
+    ) -> KnowledgeVersionRetryResult:
+        """
+        安全重试当前用户知识库中的一个失败 DocumentVersion。
+
+        输入限定到用户、KnowledgeBase、Document 和 Version；failed Version 直接回到
+        pending，cleanup_required Version 必须先删除 Qdrant 向量。成功重置后复用完整
+        索引流程，返回最终或并发中的当前状态和 Chunk 数量。已 indexed 或 processing
+        的 Version 不重复写入；Qdrant 清理不可用时保持 cleanup_required 并抛出重试异常。
+        """
+
+        document = self._knowledge_repository.get_owned_document(
+            document_id=document_id,
+            owner_id=owner_id,
+        )
+        if document is None or document.knowledge_base_id != knowledge_base_id:
+            raise KnowledgeDocumentNotFoundError()
+
+        version = self._knowledge_repository.get_version_for_document(
+            document_id=document.id,
+            document_version_id=document_version_id,
+        )
+        if version is None:
+            raise KnowledgeVersionNotFoundError()
+
+        version_status = DocumentVersionStatus(version.status)
+        if version_status == DocumentVersionStatus.CLEANUP_REQUIRED:
+            # 读取状态后立即结束事务；Qdrant 网络 I/O 不能占用 MySQL 事务。
+            self._session.rollback()
+            try:
+                await self._cleanup_failed_vector_write(
+                    document_version_id=version.id,
+                    vector_store=components.vector_store,
+                )
+            except VectorStoreCleanupRequiredError as error:
+                raise KnowledgeVersionRetryError() from error
+
+        if version_status in {
+            DocumentVersionStatus.FAILED,
+            DocumentVersionStatus.CLEANUP_REQUIRED,
+        }:
+            try:
+                version = self._knowledge_repository.requeue_failed_version(
+                    document_id=document.id,
+                    document_version_id=document_version_id,
+                )
+                self._session.commit()
+            except SQLAlchemyError as error:
+                self._session.rollback()
+                raise KnowledgeVersionWriteError() from error
+
+            if version is None:
+                self._session.rollback()
+                version = self._get_document_version_or_raise(
+                    document_id=document.id,
+                    document_version_id=document_version_id,
+                )
+
+        if version.status == DocumentVersionStatus.PENDING.value:
+            indexed_version = await self.index_document_version(
+                owner_id=owner_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                components=components,
+            )
+            if indexed_version is not None:
+                version = indexed_version
+            else:
+                version = self._get_document_version_or_raise(
+                    document_id=document.id,
+                    document_version_id=version.id,
+                )
+
+        return KnowledgeVersionRetryResult(
+            version=version,
+            chunk_count=self._knowledge_repository.count_chunks(
+                document_version_id=version.id
+            ),
+        )
+
     async def index_document_version(
         self,
         *,
@@ -667,6 +764,22 @@ class KnowledgeService:
                 cleanup_required=False,
                 failure_reason="index_state_write_failed",
             )
+
+    def _get_document_version_or_raise(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> DocumentVersion:
+        """读取并返回同一 Document 下当前 Version；被并发删除时统一报不存在。"""
+
+        version = self._knowledge_repository.get_version_for_document(
+            document_id=document_id,
+            document_version_id=document_version_id,
+        )
+        if version is None:
+            raise KnowledgeVersionNotFoundError()
+        return version
 
     async def upsert_vector_points(
         self,

@@ -18,6 +18,14 @@ class KnowledgeVersionWriteError(Exception):
     """DocumentVersion or its chunks could not be committed."""
 
 
+class KnowledgeVersionNotFoundError(Exception):
+    """DocumentVersion does not exist or is outside the current user's document scope."""
+
+
+class KnowledgeVersionRetryError(Exception):
+    """DocumentVersion cannot be retried safely because vector cleanup is unavailable."""
+
+
 class VectorStoreInputError(Exception):
     """写入向量库的 Point、向量维度或 Version ID 不符合存储契约。"""
 
