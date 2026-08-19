@@ -47,6 +47,7 @@ class KnowledgeIndexingComponents:
     chunker: Chunker
     chunking_config: ChunkingConfig
     embedding_profile: EmbeddingProfile
+    embedding_batch_size: int
 
 
 @dataclass(frozen=True)
@@ -281,6 +282,30 @@ class KnowledgeService:
             chunker_config=chunker_config,
             embedding_profile=components.embedding_profile.alias,
             embedding_dimension=components.embedding_profile.dimension,
+        )
+
+    def batch_chunks_for_embedding(
+        self,
+        *,
+        chunks: tuple[DocumentChunk, ...],
+        components: KnowledgeIndexingComponents,
+    ) -> tuple[tuple[DocumentChunk, ...], ...]:
+        """
+        将一个 Version 的 Chunk 按服务器批大小切成多个 Embedding 批次。
+
+        输入是已经写入 MySQL 的有序 Chunk 和服务器索引组件；返回的每个 tuple
+        保持原顺序，下一步由 Service 对每批执行 `await EmbeddingGateway.embed()`。
+        这个方法只做内存分组，不执行网络 I/O，也不改变数据库状态。
+        """
+
+        batch_size = components.embedding_batch_size
+        if batch_size <= 0:
+            raise KnowledgeVersionWriteError(
+                "Embedding batch size must be greater than zero."
+            )
+        return tuple(
+            chunks[start : start + batch_size]
+            for start in range(0, len(chunks), batch_size)
         )
 
     def persist_chunks(
