@@ -1,8 +1,9 @@
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy.orm import Session
 
 from app.ai.embedding_gateway import EmbeddingGateway
@@ -16,6 +17,8 @@ from app.knowledge import (
     build_default_parser_registry,
     resolve_default_embedding_profile,
 )
+from app.knowledge.qdrant_vector_store import QdrantVectorStore
+from app.knowledge.vector_store import VectorStore
 from app.core.config import settings
 from app.core.exceptions import InvalidAccessTokenError
 from app.db.redis_client import redis_client
@@ -89,14 +92,15 @@ def get_knowledge_service(
     return KnowledgeService(session)
 
 
-def get_knowledge_indexing_components(
+async def get_knowledge_indexing_components(
     storage_provider: Annotated[StorageProvider, Depends(get_storage_provider)],
-) -> KnowledgeIndexingComponents:
+) -> AsyncIterator[KnowledgeIndexingComponents]:
     """
-    从 Settings 与 Storage Provider 组装 Document 预处理所需的全部运行时组件。
+    从 Settings、Storage Provider 与 Qdrant Client 组装知识索引运行时组件。
 
-    此函数是 Token、Chunk 配置和 Embedding Profile 的唯一来源；
-    未来 `prepare_document_version()` 通过 Depends 获得此对象，而非接收客户端配置。
+    此函数是 Token、Chunk、Embedding Profile 与 VectorStore 的唯一服务器来源；
+    客户端不能自行选择这些索引配置。AsyncQdrantClient 是请求级资源，离开请求后
+    无论业务成功或失败都会关闭其 HTTP 连接；本函数本身不向 Qdrant 执行写入。
     """
 
     embedding_profile = resolve_default_embedding_profile(
@@ -114,7 +118,16 @@ def get_knowledge_indexing_components(
         config=chunking_config,
         token_counter=token_counter,
     )
-    return KnowledgeIndexingComponents(
+    qdrant_client = AsyncQdrantClient(
+        url=str(settings.QDRANT_URL),
+        timeout=settings.QDRANT_TIMEOUT_SECONDS,
+    )
+    vector_store: VectorStore = QdrantVectorStore(
+        client=qdrant_client,
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+        vector_dimension=embedding_profile.dimension,
+    )
+    components = KnowledgeIndexingComponents(
         storage_provider=storage_provider,
         parser_registry=build_default_parser_registry(),
         chunker=chunker,
@@ -127,7 +140,13 @@ def get_knowledge_indexing_components(
             provider_factory=get_embedding_provider,
             total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
         ),
+        vector_store=vector_store,
     )
+    try:
+        yield components
+    finally:
+        # AsyncQdrantClient 持有 HTTP 连接池；请求结束必须关闭，避免长期运行时泄漏连接。
+        await qdrant_client.close()
 
 
 def get_ai_gateway() -> AIGateway:

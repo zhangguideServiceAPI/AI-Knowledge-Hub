@@ -17,6 +17,7 @@ from app.knowledge import (
     ParsedDocument,
     build_processing_fingerprint,
 )
+from app.knowledge.vector_store import VectorStore
 from app.knowledge.exceptions import (
     KnowledgeBaseNotFoundError,
     KnowledgeBaseWriteError,
@@ -51,6 +52,7 @@ class KnowledgeIndexingComponents:
     embedding_profile: EmbeddingProfile
     embedding_batch_size: int
     embedding_gateway: EmbeddingGateway
+    vector_store: VectorStore
 
 
 @dataclass(frozen=True)
