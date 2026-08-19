@@ -21,6 +21,10 @@ from .embedding import (
     EmbeddingProfileNotConfiguredError as EmbeddingProfileNotConfiguredError,
     resolve_default_embedding_profile as resolve_default_embedding_profile,
 )
+from .indexing import (
+    ProcessingFingerprintInputError as ProcessingFingerprintInputError,
+    build_processing_fingerprint as build_processing_fingerprint,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -42,6 +46,7 @@ __all__ = [
     "NoParseableTextError",
     "ParserRegistry",
     "PdfParser",
+    "ProcessingFingerprintInputError",
     "ParsedBlock",
     "ParsedDocument",
     "ParsingError",
@@ -51,5 +56,6 @@ __all__ = [
     "TokenCounter",
     "UnsupportedContentTypeError",
     "build_default_parser_registry",
+    "build_processing_fingerprint",
     "resolve_default_embedding_profile",
 ]
