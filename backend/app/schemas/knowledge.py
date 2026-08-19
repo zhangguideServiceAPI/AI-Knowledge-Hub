@@ -30,3 +30,17 @@ class KnowledgeBaseResponse(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    """文件成功加入知识库后返回的 Document 管理记录。"""
+
+    # from_attributes=True 允许 Pydantic 从 SQLAlchemy KnowledgeDocument 读取字段。
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    knowledge_base_id: UUID
+    file_id: UUID
+    active_version_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
