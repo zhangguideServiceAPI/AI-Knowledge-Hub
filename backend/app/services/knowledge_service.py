@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from typing import BinaryIO
+from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.ai.embedding_gateway import EmbeddingGateway, EmbeddingRequest
 from app.db.repositories.file_repository import FileRepository
 from app.db.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge import (
@@ -48,6 +50,20 @@ class KnowledgeIndexingComponents:
     chunking_config: ChunkingConfig
     embedding_profile: EmbeddingProfile
     embedding_batch_size: int
+    embedding_gateway: EmbeddingGateway
+
+
+@dataclass(frozen=True)
+class ChunkVector:
+    """
+    一个已持久化 Chunk 与其 Embedding 向量的内存配对结果。
+
+    `chunk_id` 指向 MySQL 的 DocumentChunk，`vector` 尚未写入 Qdrant；
+    后续 VectorStore 只需使用这个明确配对的结果构造 upsert 数据。
+    """
+
+    chunk_id: str
+    vector: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -307,6 +323,40 @@ class KnowledgeService:
             chunks[start : start + batch_size]
             for start in range(0, len(chunks), batch_size)
         )
+
+    async def embed_chunk_batches(
+        self,
+        *,
+        chunks: tuple[DocumentChunk, ...],
+        components: KnowledgeIndexingComponents,
+    ) -> tuple[ChunkVector, ...]:
+        """
+        按服务器批大小依次调用 EmbeddingGateway，并保留 Chunk 与向量的顺序配对。
+
+        输入是已写入 MySQL 的 Chunk 与服务器索引组件；输出只保留内存中的
+        `ChunkVector`，不写 Qdrant、不给 Version 改状态。任一批次被 Gateway 拒绝、
+        超时或返回异常时立即向上抛出，后续批次不会继续执行。
+        """
+
+        chunk_vectors: list[ChunkVector] = []
+        for batch in self.batch_chunks_for_embedding(
+            chunks=chunks,
+            components=components,
+        ):
+            result = await components.embedding_gateway.embed(
+                EmbeddingRequest(
+                    # 这是外部 Provider 请求的追踪 ID，不是 DocumentVersion 或 Chunk 的业务 ID。
+                    request_id=str(uuid4()),
+                    texts=tuple(chunk.content for chunk in batch),
+                    model_alias=components.embedding_profile.alias,
+                )
+            )
+            chunk_vectors.extend(
+                ChunkVector(chunk_id=chunk.id, vector=vector)
+                for chunk, vector in zip(batch, result.vectors, strict=True)
+            )
+
+        return tuple(chunk_vectors)
 
     def persist_chunks(
         self,

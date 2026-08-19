@@ -5,7 +5,8 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.ai.factory import get_chat_provider
+from app.ai.embedding_gateway import EmbeddingGateway
+from app.ai.factory import get_chat_provider, get_embedding_provider
 from app.ai.gateway import AIGateway
 from app.ai.prompt_center import PromptCenter, get_prompt_center
 from app.knowledge import (
@@ -120,6 +121,12 @@ def get_knowledge_indexing_components(
         chunking_config=chunking_config,
         embedding_profile=embedding_profile,
         embedding_batch_size=settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+        embedding_gateway=EmbeddingGateway(
+            model_configs=settings.EMBEDDING_MODELS,
+            default_model_alias=settings.EMBEDDING_DEFAULT_MODEL_ALIAS,
+            provider_factory=get_embedding_provider,
+            total_deadline_seconds=settings.AI_TOTAL_DEADLINE_SECONDS,
+        ),
     )
 
 
