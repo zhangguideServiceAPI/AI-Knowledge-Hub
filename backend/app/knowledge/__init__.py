@@ -16,6 +16,11 @@ from .chunking import (
     StructureAwareChunker as StructureAwareChunker,
     TokenCounter as TokenCounter,
 )
+from .embedding import (
+    EmbeddingProfile as EmbeddingProfile,
+    EmbeddingProfileNotConfiguredError as EmbeddingProfileNotConfiguredError,
+    resolve_default_embedding_profile as resolve_default_embedding_profile,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -30,6 +35,8 @@ __all__ = [
     "Chunker",
     "ChunkingConfig",
     "ChunkingError",
+    "EmbeddingProfile",
+    "EmbeddingProfileNotConfiguredError",
     "InvalidDocumentError",
     "MarkdownParser",
     "NoParseableTextError",
@@ -44,4 +51,5 @@ __all__ = [
     "TokenCounter",
     "UnsupportedContentTypeError",
     "build_default_parser_registry",
+    "resolve_default_embedding_profile",
 ]

@@ -46,6 +46,16 @@ AIModelAlias = Annotated[
 ]
 
 
+EmbeddingModelAlias = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    ),
+]
+
+
 class AIModelPricingConfig(BaseModel):
     """某个模型在指定价格版本下的成本配置。"""
 
@@ -101,6 +111,20 @@ class AIModelConfig(BaseModel):
             )
 
         return self
+
+
+class EmbeddingModelConfig(BaseModel):
+    """一个可用于知识索引的 Embedding 模型配置。"""
+
+    # Embedding 与 Chat 共用已配置的 AI Provider；它们只是在 Provider 侧使用不同模型。
+    provider_key: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    provider_model: str = Field(min_length=1, max_length=128)
+    # 向量维度是 Qdrant Collection 与 DocumentVersion 的固定契约，必须为正数。
+    dimension: PositiveInt
 
 
 class Settings(BaseSettings):
@@ -165,6 +189,13 @@ class Settings(BaseSettings):
     AI_DEFAULT_MODEL_ALIAS: AIModelAlias | None = None
 
     AI_MODELS: dict[AIModelAlias, AIModelConfig] = Field(
+        default_factory=dict,
+    )
+
+    # Embedding 模型与 Chat 模型配置分开：两者用途、Token 计费和输出类型不同。
+    # None/空字典允许尚未进入索引阶段的环境正常启动。
+    EMBEDDING_DEFAULT_MODEL_ALIAS: EmbeddingModelAlias | None = None
+    EMBEDDING_MODELS: dict[EmbeddingModelAlias, EmbeddingModelConfig] = Field(
         default_factory=dict,
     )
 
@@ -254,6 +285,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_ai_model_registry(self) -> Self:
+        """校验 Chat 与 Embedding 模型别名均引用已配置的 AI Provider。"""
+
         if (
             self.AI_DEFAULT_MODEL_ALIAS is not None
             and self.AI_DEFAULT_MODEL_ALIAS not in self.AI_MODELS
@@ -264,6 +297,21 @@ class Settings(BaseSettings):
             if model_config.provider_key not in self.AI_PROVIDERS:
                 raise ValueError(
                     f"AI_MODELS[{model_alias!r}].provider_key "
+                    "must exist in AI_PROVIDERS."
+                )
+
+        if (
+            self.EMBEDDING_DEFAULT_MODEL_ALIAS is not None
+            and self.EMBEDDING_DEFAULT_MODEL_ALIAS not in self.EMBEDDING_MODELS
+        ):
+            raise ValueError(
+                "EMBEDDING_DEFAULT_MODEL_ALIAS must exist in EMBEDDING_MODELS."
+            )
+
+        for model_alias, model_config in self.EMBEDDING_MODELS.items():
+            if model_config.provider_key not in self.AI_PROVIDERS:
+                raise ValueError(
+                    f"EMBEDDING_MODELS[{model_alias!r}].provider_key "
                     "must exist in AI_PROVIDERS."
                 )
 
