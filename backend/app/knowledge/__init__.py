@@ -35,6 +35,11 @@ from .context import (
     ContextBuilder as ContextBuilder,
     ContextBuildError as ContextBuildError,
 )
+from .rag import (
+    RAGAnswer as RAGAnswer,
+    RAGChatService as RAGChatService,
+    RAGContractError as RAGContractError,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -53,6 +58,9 @@ __all__ = [
     "ContextBuilder",
     "ContextBuildError",
     "BuiltContext",
+    "RAGAnswer",
+    "RAGChatService",
+    "RAGContractError",
     "EmbeddingProfile",
     "EmbeddingProfileNotConfiguredError",
     "InvalidDocumentError",
