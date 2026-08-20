@@ -34,7 +34,7 @@ class RAGAnswer:
             raise RAGContractError("RAG citation IDs must be unique.")
 
 
-class RAGChatService(Protocol):
+class RAGChatServiceProtocol(Protocol):
     """RAG 问答编排边界，负责把检索、Context、Prompt 和 ChatService 串成一次请求。"""
 
     async def answer_knowledge_question(
