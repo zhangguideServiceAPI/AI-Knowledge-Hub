@@ -14,9 +14,9 @@ Sprint 5 正在进行，当前进入 Story 5.8 Citation & Context 的设计阶�
 
 ```text
 Current Sprint: Sprint 5 Knowledge / RAG
-Current Story: Story 5.8 Citation & Context
-Current Goal: 将已验证的 RetrievalHit 组织为可追溯、受 Token 预算约束的模型 Context
-Current Step: ContextBuilder 已完成；下一步确定 RAG Prompt 的受控注入与总 Token 预算计算
+Current Story: Story 5.9 RAG End-to-End & Review
+Current Goal: 将检索、Context、Prompt 和 AI Gateway 串成带 Citation 的 RAG 回答
+Current Step: 已定义 RAGAnswer 与 RAGChatService 契约；下一步接入 Retrieval 输入
 ```
 
 | Story | 状态 | 已形成的实现证据 |
@@ -28,8 +28,8 @@ Current Step: ContextBuilder 已完成；下一步确定 RAG Prompt 的受控注
 | 5.5 Vector Store / Qdrant | 实现完成，测试待补 | VectorStore 协议、Qdrant Adapter、Collection 初始化、payload 过滤索引、批量 upsert 与清理 |
 | 5.6 Indexing Pipeline | 实现完成，测试待补 | 上传同步索引、Version 原子认领、状态机、补偿、active Version 提升、失败重试 API |
 | 5.7 Retrieval | 实现完成，测试待补 | Query Embedding、KnowledgeBase Filter、Qdrant Dense Search、MySQL active Version 回填、RetrievalHit 与认证 API |
-| 5.8 Citation & Context | 进行中，ContextBuilder 已完成，测试待补 | `RetrievalHit[]` 受 Token 预算选择、结构化 Citation、完整 Chunk 不截断 |
-| 5.9 RAG End-to-End & Review | 未开始 | - |
+| 5.8 Citation & Context | 实现完成，测试待补 | `RetrievalHit[]` 受 Token 预算选择、结构化 Citation、完整 Chunk 不截断 |
+| 5.9 RAG End-to-End & Review | 进行中，契约已定义，测试待补 | `RAGAnswer`、`RAGChatService.answer_knowledge_question()` 输入输出边界 |
 
 当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md) 与 [ADR-0031](../architecture/adr/ADR-0031-mysql-validated-vector-retrieval.md)。
 
