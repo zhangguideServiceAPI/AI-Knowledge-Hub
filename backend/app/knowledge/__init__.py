@@ -37,8 +37,8 @@ from .context import (
 )
 from .rag import (
     RAGAnswer as RAGAnswer,
-    RAGChatService as RAGChatService,
     RAGContractError as RAGContractError,
+    RAGChatServiceProtocol as RAGChatServiceProtocol,
 )
 from .parsers import (
     MarkdownParser as MarkdownParser,
@@ -59,7 +59,7 @@ __all__ = [
     "ContextBuildError",
     "BuiltContext",
     "RAGAnswer",
-    "RAGChatService",
+    "RAGChatServiceProtocol",
     "RAGContractError",
     "EmbeddingProfile",
     "EmbeddingProfileNotConfiguredError",
