@@ -40,6 +40,11 @@ from .rag import (
     RAGContractError as RAGContractError,
     RAGChatServiceProtocol as RAGChatServiceProtocol,
 )
+from .budget import (
+    RAGTokenBudget as RAGTokenBudget,
+    RAGTokenBudgetCalculator as RAGTokenBudgetCalculator,
+    RAGTokenBudgetError as RAGTokenBudgetError,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -61,6 +66,9 @@ __all__ = [
     "RAGAnswer",
     "RAGChatServiceProtocol",
     "RAGContractError",
+    "RAGTokenBudget",
+    "RAGTokenBudgetCalculator",
+    "RAGTokenBudgetError",
     "EmbeddingProfile",
     "EmbeddingProfileNotConfiguredError",
     "InvalidDocumentError",
