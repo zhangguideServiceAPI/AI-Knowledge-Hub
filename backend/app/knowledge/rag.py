@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.ai.prompt_center import RenderedPrompt
 from app.ai.provider import FinishReason, TokenUsage
 from app.knowledge.context import Citation
 
@@ -32,6 +33,26 @@ class RAGAnswer:
         citation_ids = tuple(citation.citation_id for citation in self.citations)
         if len(citation_ids) != len(set(citation_ids)):
             raise RAGContractError("RAG citation IDs must be unique.")
+
+
+@dataclass(frozen=True)
+class PreparedRAGPrompt:
+    """RAG 编排完成 Context 注入后、尚未发送给 AIGateway 的最终 System Prompt。"""
+
+    rendered_prompt: RenderedPrompt
+    context_content: str
+    citations: tuple[Citation, ...]
+    context_tokens: int
+
+    def __post_init__(self) -> None:
+        """校验模板身份、Token 记录和 Citation 与 Context 的对应关系。"""
+
+        if not self.rendered_prompt.content.strip():
+            raise RAGContractError("Prepared RAG system prompt must not be empty.")
+        if self.context_tokens < 0:
+            raise RAGContractError("Prepared RAG context tokens must not be negative.")
+        if not self.context_content and self.citations:
+            raise RAGContractError("Empty RAG context must not contain citations.")
 
 
 class RAGChatServiceProtocol(Protocol):
