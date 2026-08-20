@@ -1,6 +1,10 @@
 """RAG Chat 的 Service 编排入口。"""
 
+from collections.abc import Mapping
+
+from app.core.config import AIModelConfig
 from app.knowledge.retrieval import RetrievalHit
+from app.knowledge.budget import RAGTokenBudgetCalculator
 from app.knowledge.context import BuiltContext, ContextBuilder
 from app.services.knowledge_service import (
     KnowledgeRetrievalComponents,
@@ -16,12 +20,18 @@ class RAGChatService:
         knowledge_service: KnowledgeService,
         retrieval_components: KnowledgeRetrievalComponents,
         context_builder: ContextBuilder,
+        budget_calculator: RAGTokenBudgetCalculator,
+        model_configs: Mapping[str, AIModelConfig],
+        default_model_alias: str | None,
     ) -> None:
-        """注入检索、Context 能力和服务器策略，不从用户请求读取内部实现配置。"""
+        """注入检索、Context、预算和 Chat 模型配置，不从用户请求读取服务器策略。"""
 
         self._knowledge_service = knowledge_service
         self._retrieval_components = retrieval_components
         self._context_builder = context_builder
+        self._budget_calculator = budget_calculator
+        self._model_configs = model_configs
+        self._default_model_alias = default_model_alias
 
     async def retrieve_hits(
         self,
@@ -51,16 +61,26 @@ class RAGChatService:
         owner_id: int,
         knowledge_base_id: str,
         query: str,
-        token_budget: int,
+        system_prompt: str,
+        model_alias: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> BuiltContext:
         """
-        先检索当前有效 Chunk，再在给定 Token 预算内构造 Context 和 Citation。
+        先计算真实预算，再检索当前有效 Chunk 并构造 Context 和 Citation。
 
-        `token_budget` 来自上层对 Chat 模型 Context Window 的预算计算，不由用户直接放大；
-        本方法只串联 Retrieval 与 ContextBuilder，不渲染 Prompt、不调用 ChatService 或
-        AIGateway。没有命中时返回空 BuiltContext，保留“无依据时不生成回答”的判断权给上层。
+        `system_prompt` 由下一步 PromptCenter 提供；模型配置、Tokenizer 和安全余量来自
+        服务端注入。方法自动扣除 System/User 输入、输出预留与安全余量，剩余空间才交给
+        ContextBuilder。本方法仍不渲染 Prompt、不调用 ChatService 或 AIGateway；没有命中
+        时返回空 BuiltContext，保留“无依据时不生成回答”的判断权给上层。
         """
 
+        model_config = self._resolve_model_config(model_alias)
+        budget = self._budget_calculator.calculate(
+            model_config=model_config,
+            system_prompt=system_prompt,
+            user_messages=(query,),
+            max_output_tokens=max_output_tokens,
+        )
         hits = await self.retrieve_hits(
             owner_id=owner_id,
             knowledge_base_id=knowledge_base_id,
@@ -68,5 +88,16 @@ class RAGChatService:
         )
         return self._context_builder.build(
             hits=hits,
-            token_budget=token_budget,
+            token_budget=budget.available_context_tokens,
         )
+
+    def _resolve_model_config(self, model_alias: str | None) -> AIModelConfig:
+        """解析请求模型别名；未指定时使用服务器默认值，未知别名拒绝进入预算计算。"""
+
+        resolved_alias = model_alias or self._default_model_alias
+        if resolved_alias is None:
+            raise ValueError("No default RAG chat model is configured.")
+        model_config = self._model_configs.get(resolved_alias)
+        if model_config is None:
+            raise ValueError("Requested RAG chat model is not configured.")
+        return model_config

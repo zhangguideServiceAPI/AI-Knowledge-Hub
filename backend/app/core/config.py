@@ -222,6 +222,8 @@ class Settings(BaseSettings):
         ge=-1.0,
         le=1.0,
     )
+    # RAG 预算为消息包装、tokenizer 差异和 Provider 计数保留的服务器安全余量。
+    RAG_TOKEN_SAFETY_MARGIN_TOKENS: int = Field(default=64, ge=0)
 
     # Qdrant 是独立的向量检索服务；业务真相仍保存在 MySQL。
     QDRANT_URL: AnyHttpUrl = "http://127.0.0.1:6333"

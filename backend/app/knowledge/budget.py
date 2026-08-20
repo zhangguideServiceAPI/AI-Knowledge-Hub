@@ -105,9 +105,9 @@ class RAGTokenBudgetCalculator:
             - resolved_output_tokens
             - self._safety_margin_tokens
         )
-        if available_context_tokens < 0:
+        if available_context_tokens <= 0:
             raise RAGTokenBudgetError(
-                "RAG prompt and output reservation exceed the model context window."
+                "RAG prompt and output reservation leave no context space."
             )
 
         return RAGTokenBudget(
