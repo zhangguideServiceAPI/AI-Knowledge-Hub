@@ -29,6 +29,12 @@ from .tokenization import (
     TiktokenTokenCounter as TiktokenTokenCounter,
     TokenizerNotAvailableError as TokenizerNotAvailableError,
 )
+from .context import (
+    BuiltContext as BuiltContext,
+    Citation as Citation,
+    ContextBuilder as ContextBuilder,
+    ContextBuildError as ContextBuildError,
+)
 from .parsers import (
     MarkdownParser as MarkdownParser,
     ParserRegistry as ParserRegistry,
@@ -43,6 +49,10 @@ __all__ = [
     "Chunker",
     "ChunkingConfig",
     "ChunkingError",
+    "Citation",
+    "ContextBuilder",
+    "ContextBuildError",
+    "BuiltContext",
     "EmbeddingProfile",
     "EmbeddingProfileNotConfiguredError",
     "InvalidDocumentError",
