@@ -2,14 +2,19 @@
 
 from collections.abc import Mapping
 
+from app.ai.prompt_center import PromptCenter
 from app.core.config import AIModelConfig
-from app.knowledge.retrieval import RetrievalHit
 from app.knowledge.budget import RAGTokenBudgetCalculator
 from app.knowledge.context import BuiltContext, ContextBuilder
+from app.knowledge.rag import PreparedRAGPrompt
+from app.knowledge.retrieval import RetrievalHit
 from app.services.knowledge_service import (
     KnowledgeRetrievalComponents,
     KnowledgeService,
 )
+
+_RAG_PROMPT_KEY = "rag_assistant"
+_RAG_PROMPT_VERSION = "v1"
 
 
 class RAGChatService:
@@ -21,6 +26,7 @@ class RAGChatService:
         retrieval_components: KnowledgeRetrievalComponents,
         context_builder: ContextBuilder,
         budget_calculator: RAGTokenBudgetCalculator,
+        prompt_center: PromptCenter,
         model_configs: Mapping[str, AIModelConfig],
         default_model_alias: str | None,
     ) -> None:
@@ -30,6 +36,7 @@ class RAGChatService:
         self._retrieval_components = retrieval_components
         self._context_builder = context_builder
         self._budget_calculator = budget_calculator
+        self._prompt_center = prompt_center
         self._model_configs = model_configs
         self._default_model_alias = default_model_alias
 
@@ -89,6 +96,48 @@ class RAGChatService:
         return self._context_builder.build(
             hits=hits,
             token_budget=budget.available_context_tokens,
+        )
+
+    async def prepare_prompt_context(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        query: str,
+        model_alias: str | None = None,
+        max_output_tokens: int | None = None,
+    ) -> PreparedRAGPrompt:
+        """
+        以空 Context 渲染基础 Prompt 计算预算，再注入检索结果得到最终 System Prompt。
+
+        第一次渲染保留模板的固定指令、标签和换行，确保它们也占用 Token 预算；随后使用
+        BuiltContext 的正文再次渲染相同版本模板。输出保留 Prompt 身份、最终正文和 Citation，
+        供下一步 ChatService/AIGateway 调用复用。本方法不直接调用模型。
+        """
+
+        base_prompt = self._prompt_center.render(
+            prompt_key=_RAG_PROMPT_KEY,
+            version=_RAG_PROMPT_VERSION,
+            variables={"knowledge_context": ""},
+        )
+        context = await self.retrieve_context(
+            owner_id=owner_id,
+            knowledge_base_id=knowledge_base_id,
+            query=query,
+            system_prompt=base_prompt.content,
+            model_alias=model_alias,
+            max_output_tokens=max_output_tokens,
+        )
+        rendered_prompt = self._prompt_center.render(
+            prompt_key=_RAG_PROMPT_KEY,
+            version=_RAG_PROMPT_VERSION,
+            variables={"knowledge_context": context.content},
+        )
+        return PreparedRAGPrompt(
+            rendered_prompt=rendered_prompt,
+            context_content=context.content,
+            citations=context.citations,
+            context_tokens=context.used_tokens,
         )
 
     def _resolve_model_config(self, model_alias: str | None) -> AIModelConfig:

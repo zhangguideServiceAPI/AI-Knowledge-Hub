@@ -36,6 +36,7 @@ from .context import (
     ContextBuildError as ContextBuildError,
 )
 from .rag import (
+    PreparedRAGPrompt as PreparedRAGPrompt,
     RAGAnswer as RAGAnswer,
     RAGContractError as RAGContractError,
     RAGChatServiceProtocol as RAGChatServiceProtocol,
@@ -63,6 +64,7 @@ __all__ = [
     "ContextBuilder",
     "ContextBuildError",
     "BuiltContext",
+    "PreparedRAGPrompt",
     "RAGAnswer",
     "RAGChatServiceProtocol",
     "RAGContractError",
