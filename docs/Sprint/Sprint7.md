@@ -2,17 +2,19 @@
 
 ## 状态
 
-Sprint 7 为计划阶段，必须在 Sprint 6 Workflow 完成后开始。
+Sprint 7 为计划阶段，必须在 Sprint 6 Workflow 完成后开始，并且至少已有一个真实业务
+Workflow 纵向闭环通过验证。
 
 ```text
 Planned Sprint: Sprint 7 Agent Runtime
-Entry Condition: 固定 Workflow 已具备状态、恢复、审批和审计能力
+Entry Condition: 固定 Workflow 已具备状态、恢复、审批和审计能力；真实业务纵向闭环已验证
 North Star: 模型可以建议下一步动作，但执行权始终属于受控 Runtime
 ```
 
 ## Sprint 定位
 
 Agent Runtime 解决“下一步不能完全预先写死时，如何让模型在安全边界内选择动作”。
+它不负责定义业务规则；业务真相仍由已有的 Service、策略和 Workflow 保持。
 
 ```text
 RAG:      找资料并生成有引用的回答

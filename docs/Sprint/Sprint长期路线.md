@@ -72,12 +72,16 @@ Sprint 13 -> 系统级编排：Durable DAG、Event、Scheduler、Multi-Agent
 Sprint 14 -> 技术领导力：AI SDLC、独立审查、供应链、可信交付
 ```
 
+业务/Product 轨道贯穿 Sprint 5 之后：从一个真实业务案例开始，随着 Workflow、Agent、评估和
+平台治理逐步补充规则；不先设计一个脱离业务的通用引擎。
+
 ## 关键依赖
 
 - Authentication 和 Session 为所有受保护业务提供可信 `user_id`。
 - Storage 提供稳定 File Resource；AI Gateway 提供稳定模型调用。
 - Knowledge/RAG 同时依赖 File Resource 与 AI Gateway。
 - Workflow 和 Agent 复用 Knowledge 与 AI Gateway，不重新直连 Provider SDK。
+- Sprint 6 之前先选定一个小型真实业务案例；业务规则在纵向实现中逐步明确，不要求一次设计完整产品。
 - Observability 横向观察前述能力；Async Platform 承接已经证明需要后台执行的长任务。
 - Cloud Native 在系统边界和运行负载稳定后再平台化部署，不提前替代应用设计。
 - AI Platform 在稳定运行底座上加入 Workspace、策略、版本、配额和审计控制面。
