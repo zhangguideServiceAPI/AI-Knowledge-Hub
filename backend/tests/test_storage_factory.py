@@ -45,7 +45,6 @@ def test_get_storage_provider_returns_cached_local_provider(
         storage_factory.get_minio_client.cache_clear()
 
 
-
 def test_get_storage_provider_returns_cached_minio_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -116,5 +115,3 @@ def test_get_storage_provider_returns_cached_minio_provider(
     finally:
         storage_factory.get_storage_provider.cache_clear()
         storage_factory.get_minio_client.cache_clear()
-
-

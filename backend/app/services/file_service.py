@@ -28,11 +28,7 @@ from app.storage.exceptions import (
     StorageUnavailableError,
     UnsupportedFileTypeError,
 )
-from app.models.file_resource import (
-    FileFailureReason,
-    FileResource,
-    FileStatus,
-)
+from app.models.file_resource import FileResource, FileStatus
 
 
 @dataclass(frozen=True)

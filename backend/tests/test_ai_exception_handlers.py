@@ -86,7 +86,7 @@ def test_map_ai_error_returns_stable_public_error_without_logging(
     error: AIError,
     expected_error: PublicAIError,
 ) -> None:
-    with patch("app.api.exception_handlers.logger") as logger:
+    with patch("app.api.exception_handlers.ai.logger") as logger:
         result = map_ai_error(error)
 
     assert result == expected_error
@@ -150,7 +150,7 @@ def test_ai_error_handler_maps_known_domain_errors_to_safe_http_responses(
 ) -> None:
     client = _client_raising(error)
 
-    with patch("app.api.exception_handlers.logger") as logger:
+    with patch("app.api.exception_handlers.ai.logger") as logger:
         response = client.post("/ai/chat")
 
     assert response.status_code == expected_status
@@ -175,7 +175,7 @@ def test_ai_error_handler_uses_safe_fallback_for_unknown_domain_error() -> None:
     error = FutureAIError("raw future error detail")
     client = _client_raising(error)
 
-    with patch("app.api.exception_handlers.logger") as logger:
+    with patch("app.api.exception_handlers.ai.logger") as logger:
         response = client.post("/ai/chat")
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -207,7 +207,7 @@ def test_prompt_error_handler_returns_safe_internal_error(
 ) -> None:
     client = _client_raising(error)
 
-    with patch("app.api.exception_handlers.logger") as logger:
+    with patch("app.api.exception_handlers.ai.logger") as logger:
         response = client.post("/ai/chat")
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
