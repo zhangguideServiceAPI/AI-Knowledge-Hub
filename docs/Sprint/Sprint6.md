@@ -2,16 +2,30 @@
 
 ## 状态
 
-Sprint 6 为计划阶段，必须在 Sprint 5 Knowledge / RAG 完成并验收后开始。
+Sprint 6 为计划阶段，必须在 Sprint 5 Knowledge / RAG 完成并验收后开始；同时选定一个
+足够小的真实业务场景作为贯穿案例。
 
 ```text
 Planned Sprint: Sprint 6 Workflow
-Entry Condition: Sprint 5 RAG 闭环、Citation、测试与文档验收完成
+Entry Condition: Sprint 5 RAG 闭环、Citation、测试与文档验收完成；已选定一个贯穿业务案例
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
 本文件定义未来学习与实施顺序，不代表相关能力已经实现。进入 Sprint 6 后仍严格按照
 “一个 Story、一个小步骤”推进。
+
+## 业务学习方式
+
+Sprint 6 不要求在开始前完成一套完整的产品设计。先选择一个真实业务案例，在每个 Story
+中只补充当前步骤需要的角色、规则和异常路径；遇到新的失败或边界，再回到案例中修正模型。
+
+贯穿案例暂定为：
+
+```text
+知识修订提交 -> 审核 -> 索引/发布 -> 员工检索并获得带 Citation 的回答
+```
+
+案例用于理解 Workflow 与业务的关系，不代表现在就实现完整的知识治理产品。
 
 ## Sprint 定位
 
@@ -43,8 +57,8 @@ flowchart LR
     W --> E
 ```
 
-完成后，开发者应能设计一个“检索知识 -> 生成草稿 -> 人工审批 -> 完成”的可靠流程，
-并解释每个状态、事务、重试和权限判断由谁负责。
+完成后，开发者应能围绕一个真实业务案例设计“提交修订 -> 人工审核 -> 索引/发布 -> RAG 问答”的
+可靠流程，并解释每个业务状态、执行状态、事务、重试和权限判断由谁负责。
 
 ## 知识思维导图
 
@@ -150,7 +164,7 @@ WorkflowService.reject_run(...)
 
 | Story | 核心问题 | 真实项目练习 | 完成标准 |
 | --- | --- | --- | --- |
-| 6.0 Evolution & System Map | Workflow 与 Service、Agent、Queue 有何区别 | 画出 `knowledge_digest_v1` 全链路和 Service 方法 | 能从用户请求讲到终态，并标出输入来源和事务边界 |
+| 6.0 Business Case & System Map | 业务问题怎样变成可执行流程 | 用贯穿案例画出用户、Service、Workflow 和 RAG 的全链路 | 能讲清目标、参与者、主要状态、输入来源和事务边界 |
 | 6.1 Domain & State Machine | 什么状态才允许恢复 | 建 Definition、Run、StepRun、Attempt 和 Migration | 合法/非法迁移明确；Run 绑定不可变 Definition Version |
 | 6.2 Definition & Node Contract | 怎样在执行前发现错误流程 | 建代码型 Registry、Node Protocol、类型化输入输出和拓扑校验 | 缺 Node、重复 ID、环路、非法边和类型不匹配启动前失败 |
 | 6.3 Sequential Executor | 怎样逐步执行且留下可靠状态 | 实现认领、执行、结果持久化与下一步推进 | 成功流程逐步可查；外部 I/O 不持有数据库事务 |
@@ -158,7 +172,7 @@ WorkflowService.reject_run(...)
 | 6.5 Retry, Resume & Idempotency | 重试怎样避免重复副作用 | 分类临时/永久错误，加入幂等键、attempt 和补偿 | 故障后从失败步骤恢复；成功步骤不重复执行 |
 | 6.6 Human Approval | 怎样安全暂停并由人继续 | 实现 waiting_approval、批准、拒绝、expires_at 和手工 reconciliation | 读取/审批时惰性判定过期；仅有权限的人可处理；并发审批只有一次成功 |
 | 6.7 API & Security | HTTP 层怎样暴露流程而不接管编排 | 实现启动、查询、取消、恢复和审批 API | Router 无业务编排；跨用户 Run 不可见；错误语义稳定 |
-| 6.8 RAG Vertical Slice | 现有 Knowledge 和 Gateway 怎样复用 | Node 调用 RAG/Chat Application Service：检索 -> Context -> 草稿 -> 审批 -> 完成 | 不绕过 Prompt/Usage 终态；Citation 全程保留；依赖故障可恢复或解释 |
+| 6.8 RAG Vertical Slice | 现有 Knowledge 和 Gateway 怎样服务真实业务 | 用贯穿案例完成提交/审核/索引/问答纵向闭环 | 不绕过 Prompt/Usage 终态；Citation 全程保留；依赖故障可恢复或解释 |
 | 6.9 Lifecycle & Review | 系统是否真的经得住失败 | 并发、取消、超时、恢复、权限和故障注入 | 测试、ADR、面试题、Review、提交和 Sprint Tag 完整 |
 
 ## 状态与恢复原则
