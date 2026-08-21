@@ -8,8 +8,9 @@ from app.api.dependencies import (
     get_knowledge_indexing_components,
     get_knowledge_retrieval_components,
     get_knowledge_service,
+    get_rag_chat_service,
 )
-from app.schemas.ai import AIErrorResponse
+from app.schemas.ai import AIErrorResponse, ChatUsageResponse
 from app.schemas.error import ErrorResponse
 from app.schemas.knowledge import (
     KnowledgeBaseCreateRequest,
@@ -17,9 +18,12 @@ from app.schemas.knowledge import (
     DocumentVersionResponse,
     KnowledgeDocumentResponse,
     KnowledgeFileIngestionResponse,
+    KnowledgeChatRequest,
+    KnowledgeChatResponse,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
     RetrievalHitResponse,
+    CitationResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.knowledge_service import (
@@ -28,6 +32,7 @@ from app.services.knowledge_service import (
     KnowledgeService,
 )
 from app.services.file_service import FileService
+from app.services.rag_chat_service import RAGChatService
 
 
 router = APIRouter(
@@ -174,6 +179,88 @@ async def search_knowledge_base(
                 score=hit.score,
             )
             for hit in hits
+        ],
+    )
+
+
+@router.post(
+    "/{knowledge_base_id}/chat",
+    response_model=KnowledgeChatResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AIErrorResponse,
+            "description": "RAG request or configured AI model is invalid.",
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "Invalid or missing access token.",
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "Knowledge base was not found.",
+        },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "model": AIErrorResponse,
+            "description": "Embedding or chat provider is temporarily rate limited.",
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "model": ErrorResponse,
+            "description": "RAG answer could not be completed.",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Knowledge retrieval or AI service is temporarily unavailable.",
+        },
+        status.HTTP_504_GATEWAY_TIMEOUT: {
+            "model": AIErrorResponse,
+            "description": "Embedding or chat provider timed out.",
+        },
+    },
+)
+async def chat_with_knowledge_base(
+    knowledge_base_id: str,
+    request: KnowledgeChatRequest,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    rag_chat_service: Annotated[RAGChatService, Depends(get_rag_chat_service)],
+) -> KnowledgeChatResponse:
+    """
+    对当前用户拥有的 KnowledgeBase 执行完整非流式 RAG 问答。
+
+    Router 只处理 HTTP 输入、认证与响应；检索、MySQL active Version 校验、Token 预算、
+    Prompt 注入、AIGateway 调用和 Usage 持久化都由 RAGChatService 与 ChatService 完成。
+    Citation 作为结构化字段返回，客户端无需解析模型正文或访问内部存储位置。
+    """
+
+    answer = await rag_chat_service.answer_knowledge_question(
+        owner_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        query=request.query,
+        max_output_tokens=request.max_output_tokens,
+    )
+    usage = None
+    if answer.usage is not None:
+        usage = ChatUsageResponse(
+            input_tokens=answer.usage.input_tokens,
+            output_tokens=answer.usage.output_tokens,
+            total_tokens=answer.usage.total_tokens,
+        )
+    return KnowledgeChatResponse(
+        knowledge_base_id=knowledge_base_id,
+        request_id=answer.request_id,
+        model=answer.model,
+        content=answer.content,
+        finish_reason=answer.finish_reason,
+        usage=usage,
+        citations=[
+            CitationResponse(
+                citation_id=citation.citation_id,
+                chunk_id=citation.chunk_id,
+                document_id=citation.document_id,
+                file_id=citation.file_id,
+                source_locator=citation.source_locator,
+            )
+            for citation in answer.citations
         ],
     )
 

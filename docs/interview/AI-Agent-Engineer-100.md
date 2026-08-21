@@ -73,8 +73,8 @@ Sprint 3 面试答案：8 / 8，项目证据已同步
 Sprint 4 项目实现：已完成
 Sprint 4 面试答案：10 / 10，项目证据已同步
 
-Sprint 5 项目实现：5.1 至 5.7 已完成，5.8 至 5.9 未开始
-Sprint 5 面试答案：9 / 12；Citation、质量评估与 RAG 闭环题目待对应实现后补充
+Sprint 5 项目实现：5.1 至 5.9 第一版已完成，Sprint Review 收尾验证中
+Sprint 5 面试答案：12 / 12；Citation、Context、RAG 闭环与质量评估边界已同步
 ```
 
 不暂停当前 Sprint 去一次性补写 Sprint 1/2 的 20 道历史答案。Sprint 4 推进期间可以额外回填少量历史问题；新的 Sprint 4 面试题必须在对应 Story Review 时同步完成，避免继续产生欠账。
@@ -956,8 +956,9 @@ pricing_version`。三者组成调用发生时的历史快照，以后修改价�
 
 ## Sprint 5: RAG
 
-Sprint 5 当前只补充 5.1 至 5.6 已实现的知识入库问题。查询 Retrieval、Citation、质量
-评估和 RAG Chat 闭环仍在后续 Story，不能把设计目标写成已完成事实。
+Sprint 5 的 12 道题覆盖知识入库、Dense Retrieval、Citation、Context 预算、RAG Chat
+闭环和质量评估边界。质量评估只记录当前版本的工程边界，不把尚未实现的离线评估平台写成
+项目现状。
 
 ### Q1. RAG 的完整数据和查询链路是什么？
 
@@ -1380,6 +1381,128 @@ Version 与 READY File 回填有效 Chunk，Service 按 Qdrant score 恢复顺�
 - Q10：Citation、Context Token Budget 与 Prompt 注入边界。
 - Q11：如何评价 Retrieval Recall、Answer Faithfulness 和 Citation Accuracy。
 - Q12：Dense、Sparse、Hybrid、Reranker 和 Query Rewrite 的演进取舍。
+
+### Q10. ContextBuilder 和 Citation 如何在 Token 限制下保证可追溯性？
+
+**30 秒简答**
+
+ContextBuilder 按服务端计算出的可用 Context Token 预算，按检索顺序选择完整 Chunk；超预算
+就跳过整个 Chunk，不截断正文。每个被选中的 Chunk 同时生成结构化 Citation，回答返回 Citation
+列表，而不是事后从模型文本中猜来源。
+
+**2 分钟完整回答**
+
+一次 RAG 请求的 Context 空间不是模型窗口的全部：需要先扣除 System Prompt、用户问题、预留
+输出 Token 和安全余量。`RAGTokenBudgetCalculator` 计算剩余额度，`ContextBuilder` 用与 Chat
+模型匹配的 tokenizer 估算 Chunk 成本。Chunk 是解析和切分阶段的语义边界，不能为了凑预算按
+字符或字节截断，否则会破坏中文、代码或句子结构。选择结果保存 `chunk_id`、`document_id`、
+`file_id` 和 `source_locator`，因此 Citation 与发送给模型的 Context 一一对应。
+
+**项目中的设计或代码证据**
+
+- `app/knowledge/context.py` 实现完整 Chunk 选择和 Citation 构造。
+- `RAGChatService.prepare_prompt_context()` 先计算预算，再渲染 `rag_assistant/v1`。
+- `KnowledgeChatResponse.citations` 作为 API 结构化字段返回。
+
+**为什么没有采用其他方案**
+
+- 不按字符数或字节数截断，避免切断语义。
+- 不让模型自行输出 `[1]` 再反向解析，避免引用与真实 Chunk 脱钩。
+
+**常见追问**
+
+- 所有 Chunk 都放不下时怎么办？
+- Citation 是否等于模型保证事实正确？
+
+**容易说错的地方**
+
+- Citation 证明回答使用了哪些来源，不证明模型一定正确。
+- Token 预算不是只限制模型输出，还要为输入和指令预留空间。
+
+**掌握状态**
+
+`理解 / 能画`：Context、预算和 Citation 闭环已实现（2026-08-21）。
+
+### Q11. RAG Chat API 如何复用 Sprint 4 的 ChatService 和 AI Gateway？
+
+**30 秒简答**
+
+RAG Router 只接收认证用户、KnowledgeBase ID、问题和输出上限；`RAGChatService` 编排 Retrieval、
+Context 和 Prompt，然后把最终 System Prompt 与用户问题交给 `ChatService`。ChatService 再统一
+调用 AIGateway、持久化 Usage、计算成本并映射 Provider 错误。第一版只提供非流式回答。
+
+**2 分钟完整回答**
+
+RAG 不复制一套 Provider 调用和 Usage 逻辑。Service 先用默认 Chat 模型的 tokenizer 做预算，
+通过 PromptCenter 渲染固定版本的 RAG Prompt，再调用 `chat_with_rendered_prompt()`。该方法创建
+受控的 SYSTEM/USER Message，生成 `request_id`，调用 Gateway，并在成功、失败或取消后记录一条
+Usage。Router 只把 `RAGAnswer` 映射为 HTTP Response，Citation 单独返回，不暴露 Prompt、向量或
+内部对象存储位置。
+
+**项目中的设计或代码证据**
+
+- `POST /knowledge-bases/{knowledge_base_id}/chat` 是非流式 RAG 入口。
+- `RAGChatService -> ChatService -> AIGateway -> ChatProvider` 是生成调用链。
+- ADR-0032 记录 RAG 与既有 Chat 边界。
+
+**为什么没有采用其他方案**
+
+- 不让 RAG 直接调用 Provider SDK，避免错误、Usage 和成本语义分裂。
+- 不在首版实现 Streaming RAG，避免 Citation、断连和首事件重试语义同时扩大。
+
+**常见追问**
+
+- RAG 为什么只允许默认模型？
+- Provider 超时和无检索结果如何区分？
+
+**容易说错的地方**
+
+- `async def` 不代表已经进入后台队列；当前请求是同步完成的非流式流程。
+- 无检索结果是业务结果，Provider/Qdrant 不可用是服务故障。
+
+**掌握状态**
+
+`理解 / 能讲`：端到端调用链已实现并完成 API 静态验证（2026-08-21）。
+
+### Q12. 当前 RAG 质量评估做到了什么，后续还缺什么？
+
+**30 秒简答**
+
+当前 Sprint 5 保证的是索引状态、权限、版本、预算和来源可追溯性，不宣称回答质量已经被离线
+评估。后续需要带标准答案和来源的评估集，分别测 Retrieval Recall/Precision、Context
+覆盖、Citation 正确性、回答 Faithfulness、延迟、Token 和成本。
+
+**2 分钟完整回答**
+
+Dense Retrieval 的高 score 只是相似度信号，不等于事实正确。生产评估应固定一批真实问题、期望
+来源和可接受答案，记录 Embedding/Chunk/Prompt 版本。离线阶段先测是否召回目标 Chunk，再测
+Context 是否包含足够证据，最后由规则或模型辅助检查回答是否超出证据。线上还要观察空结果率、
+Provider 错误率、Token、延迟和用户反馈。评估结果必须与版本和配置绑定，才能比较变更是否真的
+改善质量。
+
+**项目中的设计或代码证据**
+
+- Sprint 5 当前实现提供 `score`、Citation、Usage 和 Prompt 版本，作为未来评估输入。
+- Hybrid Search、Reranker、离线评估平台不属于本 Sprint 第一版范围。
+
+**为什么没有采用其他方案**
+
+- 不把一次人工演示当作质量基线。
+- 不在没有数据集和指标定义前引入复杂 Reranker 或 Agentic RAG。
+
+**常见追问**
+
+- Recall@K 和 Faithfulness 分别测什么？
+- Chunk、Embedding 或 Prompt 改动后如何做回归？
+
+**容易说错的地方**
+
+- `score` 不是准确率。
+- Citation 存在不等于回答没有幻觉。
+
+**掌握状态**
+
+`理解`：评估边界已明确；离线评估平台列入后续 Sprint。
 
 ## Sprint 6: Workflow
 
