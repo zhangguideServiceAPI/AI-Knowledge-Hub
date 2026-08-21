@@ -7,11 +7,14 @@ from qdrant_client import AsyncQdrantClient
 from sqlalchemy.orm import Session
 
 from app.ai.embedding_gateway import EmbeddingGateway
+from app.ai.exceptions import AIInvalidModelError
 from app.ai.factory import get_chat_provider, get_embedding_provider
 from app.ai.gateway import AIGateway
 from app.ai.prompt_center import PromptCenter, get_prompt_center
 from app.knowledge import (
+    ContextBuilder,
     ChunkingConfig,
+    RAGTokenBudgetCalculator,
     StructureAwareChunker,
     TiktokenTokenCounter,
     build_default_parser_registry,
@@ -32,6 +35,7 @@ from app.services.knowledge_service import (
     KnowledgeRetrievalComponents,
     KnowledgeService,
 )
+from app.services.rag_chat_service import RAGChatService
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
@@ -230,4 +234,46 @@ def get_chat_service(
         usage_session_factory=usage_session_factory,
         model_configs=settings.AI_MODELS,
         default_model_alias=settings.AI_DEFAULT_MODEL_ALIAS,
+    )
+
+
+async def get_rag_chat_service(
+    knowledge_service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    retrieval_components: Annotated[
+        KnowledgeRetrievalComponents,
+        Depends(get_knowledge_retrieval_components),
+    ],
+    prompt_center: Annotated[PromptCenter, Depends(get_prompt_center)],
+    chat_service: Annotated[ChatService, Depends(get_chat_service)],
+) -> RAGChatService:
+    """
+    组装一个使用默认 Chat 模型 tokenizer 的 RAG ChatService。
+
+    第一版 RAG 只支持服务器默认 Chat 模型，因此 ContextBuilder 和预算计算器可共享同一个
+    TokenCounter。Embedding 组件仍只负责 Query Embedding；这里的 tokenizer 仅用于最终
+    Chat Prompt 的 Context Window 预算。依赖本身不发起 Qdrant 或模型网络调用。
+    """
+
+    default_model_alias = settings.AI_DEFAULT_MODEL_ALIAS
+    if default_model_alias is None:
+        raise AIInvalidModelError("No default RAG chat model is configured.")
+    model_config = settings.AI_MODELS.get(default_model_alias)
+    if model_config is None:
+        raise AIInvalidModelError("Default RAG chat model is not configured.")
+
+    token_counter = TiktokenTokenCounter(
+        encoding_name=model_config.tokenizer_encoding,
+    )
+    return RAGChatService(
+        knowledge_service=knowledge_service,
+        retrieval_components=retrieval_components,
+        context_builder=ContextBuilder(token_counter=token_counter),
+        budget_calculator=RAGTokenBudgetCalculator(
+            token_counter=token_counter,
+            safety_margin_tokens=settings.RAG_TOKEN_SAFETY_MARGIN_TOKENS,
+        ),
+        prompt_center=prompt_center,
+        chat_service=chat_service,
+        model_configs=settings.AI_MODELS,
+        default_model_alias=default_model_alias,
     )

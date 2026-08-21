@@ -16,7 +16,7 @@ Sprint 5 正在进行，当前进入 Story 5.8 Citation & Context 的设计阶�
 Current Sprint: Sprint 5 Knowledge / RAG
 Current Story: Story 5.9 RAG End-to-End & Review
 Current Goal: 将检索、Context、Prompt 和 AI Gateway 串成带 Citation 的 RAG 回答
-Current Step: 已完成非流式 RAG Answer 编排；下一步提供带 Citation 的 RAG API
+Current Step: 已组装默认模型 RAG 依赖；下一步提供带 Citation 的 RAG API
 ```
 
 | Story | 状态 | 已形成的实现证据 |
@@ -29,7 +29,7 @@ Current Step: 已完成非流式 RAG Answer 编排；下一步提供带 Citation
 | 5.6 Indexing Pipeline | 实现完成，测试待补 | 上传同步索引、Version 原子认领、状态机、补偿、active Version 提升、失败重试 API |
 | 5.7 Retrieval | 实现完成，测试待补 | Query Embedding、KnowledgeBase Filter、Qdrant Dense Search、MySQL active Version 回填、RetrievalHit 与认证 API |
 | 5.8 Citation & Context | 实现完成，测试待补 | `RetrievalHit[]` 受 Token 预算选择、结构化 Citation、完整 Chunk 不截断 |
-| 5.9 RAG End-to-End & Review | 进行中，已生成非流式回答，测试待补 | `PreparedRAGPrompt -> ChatService -> AIGateway -> RAGAnswer + Citation` |
+| 5.9 RAG End-to-End & Review | 进行中，RAG Dependency 已组装，测试待补 | Chat tokenizer、ContextBuilder、预算、检索、Prompt 与 ChatService 使用默认模型闭环 |
 
 当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md) 与 [ADR-0031](../architecture/adr/ADR-0031-mysql-validated-vector-retrieval.md)。
 
