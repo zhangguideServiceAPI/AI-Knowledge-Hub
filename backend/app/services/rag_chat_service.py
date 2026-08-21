@@ -5,8 +5,9 @@ from collections.abc import Mapping
 from app.ai.prompt_center import PromptCenter
 from app.ai.provider import TokenUsage
 from app.ai.exceptions import AIInvalidModelError
+from app.ai.exceptions import AIInvalidRequestError
 from app.core.config import AIModelConfig
-from app.knowledge.budget import RAGTokenBudgetCalculator
+from app.knowledge.budget import RAGTokenBudgetCalculator, RAGTokenBudgetError
 from app.knowledge.context import BuiltContext, ContextBuilder
 from app.knowledge.rag import PreparedRAGPrompt, RAGAnswer
 from app.knowledge.retrieval import RetrievalHit
@@ -88,12 +89,17 @@ class RAGChatService:
         """
 
         model_config = self._resolve_model_config(model_alias)
-        budget = self._budget_calculator.calculate(
-            model_config=model_config,
-            system_prompt=system_prompt,
-            user_messages=(query,),
-            max_output_tokens=max_output_tokens,
-        )
+        try:
+            budget = self._budget_calculator.calculate(
+                model_config=model_config,
+                system_prompt=system_prompt,
+                user_messages=(query,),
+                max_output_tokens=max_output_tokens,
+            )
+        except RAGTokenBudgetError as error:
+            raise AIInvalidRequestError(
+                "RAG request exceeds the available model context window."
+            ) from error
         hits = await self.retrieve_hits(
             owner_id=owner_id,
             knowledge_base_id=knowledge_base_id,

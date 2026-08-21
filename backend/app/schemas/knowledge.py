@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.ai.provider import FinishReason
+from app.schemas.ai import ChatUsageResponse, MODEL_ALIAS_PATTERN
 from app.schemas.file import FileResourceResponse
 
 
@@ -101,3 +103,44 @@ class KnowledgeSearchResponse(BaseModel):
 
     knowledge_base_id: UUID
     hits: list[RetrievalHitResponse]
+
+
+class KnowledgeChatRequest(BaseModel):
+    """当前用户向一个 KnowledgeBase 提交的单轮 RAG 问题。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=2_000)
+    max_output_tokens: int | None = Field(default=None, gt=0)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, query: str) -> str:
+        """清理问题首尾空白，保证 RAG Service 不接收无语义的用户消息。"""
+
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError("Knowledge chat query must not be blank.")
+        return normalized_query
+
+
+class CitationResponse(BaseModel):
+    """一段 RAG Context 在回答中可追溯到的 Chunk 与文件来源。"""
+
+    citation_id: str = Field(min_length=1, max_length=64)
+    chunk_id: UUID
+    document_id: UUID
+    file_id: UUID
+    source_locator: dict[str, object]
+
+
+class KnowledgeChatResponse(BaseModel):
+    """一轮非流式 RAG 回答及其结构化 Citation，不返回 Prompt 或原始向量。"""
+
+    knowledge_base_id: UUID
+    request_id: str = Field(min_length=1, max_length=128)
+    model: str = Field(min_length=1, max_length=64, pattern=MODEL_ALIAS_PATTERN)
+    content: str
+    finish_reason: FinishReason
+    usage: ChatUsageResponse | None = None
+    citations: list[CitationResponse]
