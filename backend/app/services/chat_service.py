@@ -29,7 +29,7 @@ from app.ai.provider import (
     FinishReason,
     TokenUsage,
 )
-from app.ai.prompt_center import PromptCenter, PromptError
+from app.ai.prompt_center import PromptCenter, PromptError, RenderedPrompt
 from app.ai.usage_cost import calculate_cost_snapshot
 from app.core.config import AIModelConfig
 from app.core.logging import logger
@@ -103,6 +103,21 @@ class ChatService:
             variables={},
         )
 
+        return self._build_gateway_request_for_prompt(
+            request,
+            request_id=request_id,
+            rendered_prompt=rendered_prompt,
+        )
+
+    def _build_gateway_request_for_prompt(
+        self,
+        request: ChatRequestSchema,
+        *,
+        request_id: str,
+        rendered_prompt: RenderedPrompt,
+    ) -> GatewayChatRequest:
+        """将一个已渲染 System Prompt 与受控用户消息组装为 Gateway 请求。"""
+
         system_message = ChatMessage(
             role=ChatRole.SYSTEM,
             content=rendered_prompt.content,
@@ -158,6 +173,34 @@ class ChatService:
         *,
         user_id: int,
     ) -> ChatResponseSchema:
+        """使用内置 assistant Prompt 处理一次普通非流式 Chat 请求。"""
+
+        rendered_prompt = self._prompt_center.render(
+            prompt_key=_ASSISTANT_PROMPT_KEY,
+            version=_ASSISTANT_PROMPT_VERSION,
+            variables={},
+        )
+        return await self.chat_with_rendered_prompt(
+            request,
+            user_id=user_id,
+            rendered_prompt=rendered_prompt,
+        )
+
+    async def chat_with_rendered_prompt(
+        self,
+        request: ChatRequestSchema,
+        *,
+        user_id: int,
+        rendered_prompt: RenderedPrompt,
+    ) -> ChatResponseSchema:
+        """
+        使用调用方已经渲染且校验过的 System Prompt 完成一次非流式 AI 调用。
+
+        普通 Chat 和 RAG 都复用本方法，从而共享 Gateway、Usage、成本和错误处理。调用方
+        只能传入 PromptCenter 产出的 `RenderedPrompt`，不能让 Router 直接构造 System
+        Message；Usage 会记录真实 Prompt Key/Version，但不会保存 Prompt 或回答正文。
+        """
+
         request_id = str(uuid4())
         created_at = datetime.now(timezone.utc).replace(tzinfo=None)
         started_at = perf_counter()  # 单调递增的高精度计时器，适合计算耗时
@@ -165,9 +208,10 @@ class ChatService:
         model_alias = request.model or self._default_model_alias
 
         try:
-            gateway_request = self._build_gateway_request(
+            gateway_request = self._build_gateway_request_for_prompt(
                 request,
                 request_id=request_id,
+                rendered_prompt=rendered_prompt,
             )
             result = await self._gateway.generate(gateway_request)
 
@@ -180,6 +224,8 @@ class ChatService:
                 started_at=started_at,
                 status=ChatUsageStatus.CANCELLED,
                 error_code=ChatUsageErrorCode.CANCELLED,
+                prompt_key=rendered_prompt.prompt_key,
+                prompt_version=rendered_prompt.version,
             )
             raise
 
@@ -192,6 +238,8 @@ class ChatService:
                 started_at=started_at,
                 status=ChatUsageStatus.FAILED,
                 error_code=_usage_error_code(error),
+                prompt_key=rendered_prompt.prompt_key,
+                prompt_version=rendered_prompt.version,
             )
             raise
 
@@ -213,8 +261,8 @@ class ChatService:
                 model_alias=result.model_alias,
                 provider=model_config.provider_key if model_config else None,
                 provider_model=model_config.provider_model if model_config else None,
-                prompt_key=_ASSISTANT_PROMPT_KEY,
-                prompt_version=_ASSISTANT_PROMPT_VERSION,
+                prompt_key=rendered_prompt.prompt_key,
+                prompt_version=rendered_prompt.version,
                 input_tokens=token_usage.input_tokens if token_usage else None,
                 output_tokens=token_usage.output_tokens if token_usage else None,
                 total_tokens=token_usage.total_tokens if token_usage else None,
@@ -274,6 +322,8 @@ class ChatService:
         started_at: float,
         status: ChatUsageStatus,
         error_code: ChatUsageErrorCode,
+        prompt_key: str,
+        prompt_version: str,
     ) -> None:
         completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         latency_ms = int((perf_counter() - started_at) * 1000)
@@ -289,8 +339,8 @@ class ChatService:
                 model_alias=model_alias,
                 provider=model_config.provider_key if model_config else None,
                 provider_model=model_config.provider_model if model_config else None,
-                prompt_key=_ASSISTANT_PROMPT_KEY,
-                prompt_version=_ASSISTANT_PROMPT_VERSION,
+                prompt_key=prompt_key,
+                prompt_version=prompt_version,
                 input_tokens=None,
                 output_tokens=None,
                 total_tokens=None,

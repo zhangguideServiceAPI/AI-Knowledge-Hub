@@ -3,11 +3,14 @@
 from collections.abc import Mapping
 
 from app.ai.prompt_center import PromptCenter
+from app.ai.provider import TokenUsage
 from app.core.config import AIModelConfig
 from app.knowledge.budget import RAGTokenBudgetCalculator
 from app.knowledge.context import BuiltContext, ContextBuilder
-from app.knowledge.rag import PreparedRAGPrompt
+from app.knowledge.rag import PreparedRAGPrompt, RAGAnswer
 from app.knowledge.retrieval import RetrievalHit
+from app.schemas.ai import ChatMessageInput, ChatRequestSchema
+from app.services.chat_service import ChatService
 from app.services.knowledge_service import (
     KnowledgeRetrievalComponents,
     KnowledgeService,
@@ -27,6 +30,7 @@ class RAGChatService:
         context_builder: ContextBuilder,
         budget_calculator: RAGTokenBudgetCalculator,
         prompt_center: PromptCenter,
+        chat_service: ChatService,
         model_configs: Mapping[str, AIModelConfig],
         default_model_alias: str | None,
     ) -> None:
@@ -37,6 +41,7 @@ class RAGChatService:
         self._context_builder = context_builder
         self._budget_calculator = budget_calculator
         self._prompt_center = prompt_center
+        self._chat_service = chat_service
         self._model_configs = model_configs
         self._default_model_alias = default_model_alias
 
@@ -138,6 +143,55 @@ class RAGChatService:
             context_content=context.content,
             citations=context.citations,
             context_tokens=context.used_tokens,
+        )
+
+    async def answer_knowledge_question(
+        self,
+        *,
+        owner_id: int,
+        knowledge_base_id: str,
+        query: str,
+        model_alias: str | None = None,
+        max_output_tokens: int | None = None,
+    ) -> RAGAnswer:
+        """
+        生成一次携带结构化 Citation 的非流式 RAG 回答。
+
+        本方法先准备受预算约束的 RAG Prompt，再把用户问题作为唯一 USER Message 交给
+        ChatService；后者统一负责 AIGateway、Usage、成本、超时、重试和错误转换。模型
+        不直接接收数据库 ID，Citation 由 PreparedRAGPrompt 单独保留并随回答返回。
+        """
+
+        prepared_prompt = await self.prepare_prompt_context(
+            owner_id=owner_id,
+            knowledge_base_id=knowledge_base_id,
+            query=query,
+            model_alias=model_alias,
+            max_output_tokens=max_output_tokens,
+        )
+        response = await self._chat_service.chat_with_rendered_prompt(
+            ChatRequestSchema(
+                messages=[ChatMessageInput(content=query)],
+                model=model_alias,
+                max_output_tokens=max_output_tokens,
+            ),
+            user_id=owner_id,
+            rendered_prompt=prepared_prompt.rendered_prompt,
+        )
+        usage = None
+        if response.usage is not None:
+            usage = TokenUsage(
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                total_tokens=response.usage.total_tokens,
+            )
+        return RAGAnswer(
+            request_id=response.request_id,
+            model=response.model,
+            content=response.content,
+            finish_reason=response.finish_reason,
+            citations=prepared_prompt.citations,
+            usage=usage,
         )
 
     def _resolve_model_config(self, model_alias: str | None) -> AIModelConfig:
