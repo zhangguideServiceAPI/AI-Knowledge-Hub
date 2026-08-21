@@ -2,13 +2,11 @@
 
 ## 1. 文档范围
 
-本文先记录 Story 3.1 已确认的 HTTP Upload 与 Streaming 基础约束。
+本文记录当前已经实现的 HTTP Upload、Streaming 读取、安全校验、配置和职责边界。File Metadata、生命周期和跨系统补偿分别由 `file-resource-design.md` 与 `storage-flow.md` 详细说明。
 
-它不定义最终的 File Metadata 表、完整响应 Schema、StorageProvider 方法签名或对象存储一致性策略；这些内容由 Story 3.2 继续设计。
+## 2. 上传请求
 
-## 2. 上传请求草案
-
-上传候选接口：
+当前接口：
 
 ```http
 POST /files
@@ -25,7 +23,7 @@ multipart/form-data
   -> FastAPI 将文件部分表示为 UploadFile
 ```
 
-最终成功响应、列表响应和错误码细节在 Story 3.2 与 File Resource 领域设计一起确定。当前仅确认：超过应用大小上限的文件属于 HTTP 413 候选，类型不被允许的文件属于 HTTP 415 候选。
+上传只有在 Storage Object 写入成功且 Metadata 进入 `READY` 后才返回 HTTP 201。完整响应和资源字段见 `file-resource-design.md`；正式错误契约见 `../API规范.md`。
 
 ## 3. Streaming 读取约束
 
@@ -35,7 +33,8 @@ UploadFile
   -> 累计实际 total_size
   -> 超过上限立即拒绝
   -> 对每个 Chunk 更新 SHA-256
-  -> 后续 Story 才将已验证的内容交给 StorageProvider
+  -> 将文件指针回到起点
+  -> 交给 StorageProvider 写入对象
 ```
 
 不能只检查 `Content-Length`：
@@ -49,8 +48,8 @@ UploadFile
 业务代码禁止为了处理上传而一次读取全部文件：
 
 ```text
-不使用：await file.read()
-使用：循环 await file.read(chunk_size)
+不使用：source.read()
+使用：循环 source.read(chunk_size)
 ```
 
 Chunk Size 是性能与内存的取舍：
@@ -60,7 +59,7 @@ Chunk Size 是性能与内存的取舍：
 | 较小 Chunk | 单请求内存占用更低 | I/O 调用和 Hash 更新次数更多 |
 | 较大 Chunk | I/O 调用更少 | 并发上传时内存占用更高 |
 
-初始候选为 1 MiB，必须在后续通过 Pydantic Settings 配置，而不是在 Service 中散落魔法数字。
+当前默认 Chunk Size 为 1 MiB，通过 Pydantic Settings 的 `UPLOAD_CHUNK_SIZE_BYTES` 配置，不在 Service 中散落魔法数字。
 
 ## 4. 不可信输入与安全边界
 
@@ -78,7 +77,7 @@ Chunk Size 是性能与内存的取舍：
 
 扩展名、MIME 和文件签名不是同一回事。Sprint 3 建立明确的允许类型策略，但不实现病毒扫描、内容审核或沙箱执行。
 
-## 5. 职责与错误草案
+## 5. 职责与错误边界
 
 ```text
 Router
@@ -93,30 +92,39 @@ Global Exception Handler
   -> 将业务异常映射为稳定 HTTP 错误响应
 
 StorageProvider
-  -> 在后续 Story 保存、读取和删除已允许的 Bytes
+  -> 保存、读取和删除已经通过业务校验的 Bytes
   -> 不决定用户权限、文件大小或类型策略
 ```
 
-候选异常语义：
+当前异常语义：
 
-| 业务异常 | 负责层 | HTTP 候选 |
+| 业务异常 | 负责层 | HTTP |
 | --- | --- | ---: |
 | `FileTooLargeError` | FileService | 413 |
 | `UnsupportedFileTypeError` | FileService | 415 |
+| `InvalidFileNameError` / `EmptyFileError` | FileService | 400 |
+| `StorageUnavailableError` | FileService / Handler | 503 |
 | 未认证 | 认证依赖 | 401 |
 | Multipart 缺少必需 `upload` Part | FastAPI 请求校验 | 422 |
 
-最终 Exception 类、错误码和统一 Handler 映射由 Story 3.2 一次性确认，避免在本 Story 提前写生产 Upload Helper。
+Provider 将文件系统或 S3 SDK 错误转换为稳定 Storage 异常；FileService 再根据业务阶段转换为上传、下载或删除领域异常；全局 Handler 负责 HTTP 映射。
 
-## 6. 配置与测试草案
+## 6. 配置与测试
 
-后续 Settings 候选：
+当前 Settings：
 
 ```text
 MAX_UPLOAD_SIZE_BYTES
 UPLOAD_CHUNK_SIZE_BYTES
-ALLOWED_UPLOAD_CONTENT_TYPES
+STORAGE_PROVIDER
+STORAGE_LOCAL_ROOT
+STORAGE_MINIO_ENDPOINT
+STORAGE_MINIO_ACCESS_KEY
+STORAGE_MINIO_SECRET_KEY
+STORAGE_MINIO_BUCKET
 ```
+
+当前允许 PDF、PNG 和 JPEG，扩展名、MIME 与文件签名映射由 `upload_validation.py` 的固定策略维护。若以后需要运行时配置允许列表，必须同时设计启动校验、签名策略和测试，不能只开放 MIME 字符串配置。
 
 最小测试矩阵：
 
@@ -131,4 +139,8 @@ ALLOWED_UPLOAD_CONTENT_TYPES
 
 ## 7. 当前边界
 
-Story 3.1 只完成上传入口的协议和内存安全学习。下一步 Story 3.2 再统一确定 Metadata、完整 API、状态机、跨 MySQL 与对象存储的一致性和错误契约。
+- 当前上传是同步请求，不实现浏览器直传、分片上传或断点续传。
+- `UploadFile` 可能使用临时磁盘，但临时文件不是正式 Storage Object。
+- 文件签名校验只能提高类型可信度，不等于病毒扫描、内容审核或沙箱执行。
+- LocalStorage 与 MinIO 共用 FileService 主流程；配置切换已有资源前必须先迁移对象并同步 Metadata。
+- Metadata、权限、状态机和 Cleanup 见 `file-resource-design.md`、`storage-security.md` 与 `storage-flow.md`。

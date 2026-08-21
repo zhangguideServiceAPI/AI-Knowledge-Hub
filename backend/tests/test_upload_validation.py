@@ -31,6 +31,41 @@ def test_inspect_pdf_upload_calculates_size_hash_and_resets_source() -> None:
     assert source.tell() == 0
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [("manual.txt", "text/plain"), ("manual.md", "text/markdown")],
+)
+def test_inspect_utf8_text_upload(
+    filename: str,
+    content_type: str,
+) -> None:
+    content = "产品支持 SSO。\n".encode("utf-8")
+    source = BytesIO(content)
+
+    result = inspect_upload(
+        source,
+        original_filename=filename,
+        content_type=content_type,
+        max_upload_size=1024,
+        chunk_size=4,
+    )
+
+    assert result.content_type == content_type
+    assert result.size_bytes == len(content)
+    assert source.tell() == 0
+
+
+def test_inspect_rejects_invalid_utf8_text() -> None:
+    with pytest.raises(UnsupportedFileTypeError):
+        inspect_upload(
+            BytesIO(b"\xff\xfe"),
+            original_filename="invalid.txt",
+            content_type="text/plain",
+            max_upload_size=1024,
+            chunk_size=4,
+        )
+
+
 def test_inspect_rejects_empty_file() -> None:
     source = BytesIO(b"")
 

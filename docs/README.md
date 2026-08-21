@@ -116,6 +116,7 @@ Next:      Sprint 5 Knowledge / RAG
 ## 扩展学习
 
 - [知识蒸馏与图片识别训练流程](learning/knowledge-distillation-and-image-training.md)
+- [企业 AI 应用全景：RAG、Workflow、Agent Runtime 与 MCP](learning/enterprise-ai-application-rag-workflow-agent-mcp.md)
 
 扩展学习文档不代表项目已经实现对应能力，也不能改变当前 Sprint 边界。
 

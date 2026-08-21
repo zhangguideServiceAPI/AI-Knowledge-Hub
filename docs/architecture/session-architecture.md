@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本文定义 AI-Knowledge-Hub 在 Redis 中保存认证 Session 的数据模型、生命周期和多设备索引。它只描述 Session Architecture；Refresh Token 的签发、原子轮换和重放处理由后续 Refresh Token 文档与 ADR 继续确定。
+本文定义 AI-Knowledge-Hub 在 Redis 中保存认证 Session 的数据模型、生命周期和多设备索引。Refresh Token 的签发、原子轮换和重放处理由 Refresh Token 文档与 ADR-0017、ADR-0018 共同约束。
 
 当前方案使用短期 Access Token 和受 Redis Session 控制的 Refresh Token：普通 API 只验证 Access Token，Refresh 和 Logout 才依赖 Redis Session。
 
@@ -64,9 +64,9 @@ Score: last_used_at
 
 普通 Set 只能判断成员和统计数量，不能表达稳定的最近使用顺序，因此不采用。
 
-### 3.3 Story 2.9 目标元数据
+### 3.3 设备展示元数据
 
-Session 管理接口实现后，Session Hash 增加两个可选展示字段：
+Session Hash 包含两个可选展示字段：
 
 | 字段 | 类型 | 作用 |
 | --- | --- | --- |
@@ -110,7 +110,7 @@ ZREVRANGE 获取按 last_used_at 倒序排列的 Session ID
 ```mermaid
 stateDiagram-v2
     [*] --> Active: Login creates Session
-    Active --> Active: Successful refresh updates token state later
+    Active --> Active: Successful refresh rotates token state
     Active --> Revoked: Logout or server revocation
     Active --> Expired: Session TTL reaches zero
     Revoked --> [*]: DEL Hash and ZREM index
@@ -156,7 +156,7 @@ sequenceDiagram
     A-->>C: New Access Token and Refresh Token
 ```
 
-原子轮换和 Replay Attack 处理仍属于 Story 2.3，不由当前 Repository 的普通 `get()` 和 `create()` 代替。
+原子轮换和 Replay Attack 使用 Repository 的 Lua 边界实现，不能由普通 `get()` 和 `create()` 组合代替。
 
 ### 6.3 Logout
 
@@ -269,9 +269,10 @@ Lua 执行完成后才创建的新 Session 视为新的登录并保留。当前�
 - AuthService 和 API 测试验证当前 Session 二次鉴权、列表响应、401/403/404/503、单设备撤销、全部设备登出和敏感日志排除。
 - 真实 Redis 验证撤销不会越权删除其他用户 Session，并原子维护 Session Hash 和用户 Sorted Set 索引。
 
-## 9. 后续边界
+## 9. 已完成能力与后续边界
 
 - Story 2.3：原子 Rotation 和 Replay Attack 已实现。
 - Story 2.4：Logout API 与客户端契约已实现。
-- Story 2.6：Sliding Session、Absolute Expiration 和 Secret Rotation 安全 Review。
+- Story 2.6：Sliding Session、Absolute Expiration 和 Secret Rotation 安全 Review 已完成。
 - Story 2.9：IP、User Agent、当前设备标识和 Session 管理接口已实现。
+- 浏览器 Cookie、CSRF、MFA、recent re-auth 和受信任设备策略仍属于后续安全演进。
