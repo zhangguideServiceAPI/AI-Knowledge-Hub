@@ -109,6 +109,7 @@ _DEFAULT_PROMPTS_ROOT = Path(__file__).resolve().parents[1] / "prompts"
 # Path(__file__).resolve().parents[1] / "prompts"
 # # /backend/app/ai/prompts
 
+
 class PromptCenter:
     """管理版本化 Prompt 模板，并为调用方生成最终 Prompt。
 
@@ -146,7 +147,7 @@ class PromptCenter:
 
         if not self._prompts_root.is_dir():
             raise PromptConfigurationError("Prompt root is not available.")
-                            # sorted() 按路径名称排序。
+            # sorted() 按路径名称排序。
         prompt_directories = sorted(
             path
             for path in self._prompts_root.iterdir()
@@ -158,7 +159,7 @@ class PromptCenter:
         for prompt_directory in prompt_directories:
             if (
                 not prompt_directory.is_dir()
-                or prompt_directory.is_symlink() # 符号链接可以理解为指向另一个文件或目录的快捷入口。 prompts/summary -> /other/private/directory
+                or prompt_directory.is_symlink()  # 符号链接可以理解为指向另一个文件或目录的快捷入口。 prompts/summary -> /other/private/directory
                 or not _is_prompt_identifier(prompt_directory.name)
             ):
                 raise PromptConfigurationError("Prompt root contains an invalid entry.")
