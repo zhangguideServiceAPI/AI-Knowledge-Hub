@@ -168,11 +168,11 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint 5 Knowledge / RAG (in progress)
-Current Story: Story 5.8 Citation & Context design
+Current Sprint: Sprint 6 Workflow (in progress)
+Current Story: Story 6.0 Business Case & System Map
 Current Goal:
-  - Build token-budgeted Context and Citation from validated RetrievalHit results
-  - Preserve MySQL ownership and source traceability before ChatService integration
+  - Map the knowledge revision business case from submission through approval, indexing and RAG use
+  - Separate business state from Workflow execution state before designing the Domain model
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -199,10 +199,14 @@ Completed:
   - Embedding Gateway, Qdrant VectorStore adapter and local Qdrant Compose service
   - Synchronous upload-to-index pipeline with Version state, compensation and retry
   - Dense Retrieval with Query Embedding, Qdrant base filtering and MySQL active-Version validation
+  - Token-budgeted Context and structured Citation from validated RetrievalHit results
+  - RAGChatService integration through PromptCenter, ChatService, AIGateway and terminal Usage
+  - Authenticated non-stream RAG API with answer, Usage and structured Citation
+  - ADR-0030 through ADR-0032 and Sprint 5 first-version closeout verification
 
 Not Started:
-  - Context and Citation
-  - RAG ChatService integration and Sprint 5 final verification
+  - Workflow Definition, WorkflowRun, StepRun and Attempt Domain
+  - Workflow state machine, executor, retry, approval and API
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。

@@ -2,17 +2,17 @@
 
 ## 状态
 
-Sprint 6 为计划阶段，必须在 Sprint 5 Knowledge / RAG 完成并验收后开始；同时选定一个
+Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学习阶段，并选定一个
 足够小的真实业务场景作为贯穿案例。
 
 ```text
-Planned Sprint: Sprint 6 Workflow
-Entry Condition: Sprint 5 RAG 闭环、Citation、测试与文档验收完成；已选定一个贯穿业务案例
+Current Sprint: Sprint 6 Workflow
+Current Story: Story 6.0 Business Case & System Map
+Current Step: 先讲清业务目标、参与者、业务状态、Service 入口和失败分支，不直接写代码
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
-本文件定义未来学习与实施顺序，不代表相关能力已经实现。进入 Sprint 6 后仍严格按照
-“一个 Story、一个小步骤”推进。
+Workflow 能力尚未实现；Sprint 6 仍严格按照“一个 Story、一个小步骤”推进。
 
 ## 业务学习方式
 
