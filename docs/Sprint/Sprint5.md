@@ -8,30 +8,30 @@
 
 ## 状态
 
-Sprint 5 已完成 Story 5.1 至 5.9 的第一版实现。领域模型、解析、Chunk、Embedding、Qdrant、
-同步索引、Dense Retrieval、Context、Citation 与非流式 RAG Chat 已形成闭环；按当前学习约定，
-新增测试暂缓，完整回归与 Sprint 验收在本页收尾步骤执行。
+Sprint 5 已于 2026-08-21 完成 Story 5.1 至 5.9 的第一版实现与收尾验收。领域模型、解析、
+Chunk、Embedding、Qdrant、同步索引、Dense Retrieval、Context、Citation 与非流式 RAG Chat
+已经形成闭环。
 
 ```text
-Current Sprint: Sprint 5 Knowledge / RAG
-Current Story: Story 5.9 RAG End-to-End & Review
-Current Goal: 将检索、Context、Prompt 和 AI Gateway 串成带 Citation 的 RAG 回答
-Current Step: ADR、文档同步和回归验证完成后关闭 Sprint 5
+Completed Sprint: Sprint 5 Knowledge / RAG
+Completed Story: Story 5.9 RAG End-to-End & Review
+Closeout Tag: sprint5
+Handoff: Sprint 6 Story 6.0 Business Case & System Map
 ```
 
 | Story | 状态 | 已形成的实现证据 |
 | --- | --- | --- |
-| 5.1 Knowledge Domain Design | 实现完成，测试待补 | KnowledgeBase、KnowledgeDocument、DocumentVersion、DocumentChunk，复合 active Version 外键与处理指纹 |
-| 5.2 Document Parsing | 实现完成，测试待补 | PDF、TXT、Markdown Parser 注册表与统一 ParsedDocument / Block 来源信息 |
-| 5.3 Chunking Strategy | 实现完成，测试待补 | Token 计数、结构化切分、最大 Token 与 overlap 配置 |
-| 5.4 Embedding Pipeline | 实现完成，测试待补 | EmbeddingProvider、EmbeddingGateway、模型 Profile、批量向量生成与维度校验 |
-| 5.5 Vector Store / Qdrant | 实现完成，测试待补 | VectorStore 协议、Qdrant Adapter、Collection 初始化、payload 过滤索引、批量 upsert 与清理 |
-| 5.6 Indexing Pipeline | 实现完成，测试待补 | 上传同步索引、Version 原子认领、状态机、补偿、active Version 提升、失败重试 API |
-| 5.7 Retrieval | 实现完成，测试待补 | Query Embedding、KnowledgeBase Filter、Qdrant Dense Search、MySQL active Version 回填、RetrievalHit 与认证 API |
-| 5.8 Citation & Context | 实现完成，测试待补 | `RetrievalHit[]` 受 Token 预算选择、结构化 Citation、完整 Chunk 不截断 |
-| 5.9 RAG End-to-End & Review | 实现完成，收尾验证待补 | `POST /knowledge-bases/{id}/chat` 返回非流式回答、Usage 与结构化 Citation |
+| 5.1 Knowledge Domain Design | 完成 | KnowledgeBase、KnowledgeDocument、DocumentVersion、DocumentChunk，复合 active Version 外键、处理指纹与模型约束测试 |
+| 5.2 Document Parsing | 完成 | PDF、TXT、Markdown Parser 注册表、统一 ParsedDocument / Block 来源信息与 Parser 契约测试 |
+| 5.3 Chunking Strategy | 完成，专项测试债 | Token 计数、结构化切分、最大 Token 与 overlap 配置 |
+| 5.4 Embedding Pipeline | 完成，专项测试债 | EmbeddingProvider、EmbeddingGateway、模型 Profile、批量向量生成与维度校验 |
+| 5.5 Vector Store / Qdrant | 完成，专项测试债 | VectorStore 协议、Qdrant Adapter、Collection 初始化、payload 过滤索引、批量 upsert 与清理 |
+| 5.6 Indexing Pipeline | 完成，专项测试债 | 上传同步索引、Version 原子认领、状态机、补偿、active Version 提升、失败重试 API |
+| 5.7 Retrieval | 完成，专项测试债 | Query Embedding、KnowledgeBase Filter、Qdrant Dense Search、MySQL active Version 回填、RetrievalHit 与认证 API |
+| 5.8 Citation & Context | 完成，专项测试债 | `RetrievalHit[]` 受 Token 预算选择、结构化 Citation、完整 Chunk 不截断 |
+| 5.9 RAG End-to-End & Review | 完成，回归通过 | `POST /knowledge-bases/{id}/chat` 返回非流式回答、Usage 与结构化 Citation |
 
-当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md) 与 [ADR-0031](../architecture/adr/ADR-0031-mysql-validated-vector-retrieval.md)。
+当前实现决策见 [ADR-0030](../architecture/adr/ADR-0030-knowledge-indexing-lifecycle-and-vector-store-consistency.md)、[ADR-0031](../architecture/adr/ADR-0031-mysql-validated-vector-retrieval.md) 与 [ADR-0032](../architecture/adr/ADR-0032-rag-chat-composition-and-citation-boundary.md)。
 
 ---
 
@@ -685,6 +685,22 @@ Agentic RAG
 # 六、Sprint 5 能力验收
 
 Sprint 5 完成后，不以“代码能运行”作为唯一标准。
+
+### 收尾证据
+
+- 完整默认回归：`653 passed, 18 skipped`；跳过项均为需要显式开关和真实依赖的 Redis、MinIO
+  或 AI Provider 集成测试。
+- `ruff check` 与 `ruff format --check` 通过。
+- `uv lock --check` 通过。
+- Alembic 只有 `d4eb9a63f125 (head)` 一个迁移头。
+- `git diff --check` 通过。
+
+### 已知测试债
+
+第一版关闭不等于完整自动化覆盖。Chunking、EmbeddingGateway、Qdrant Adapter、Indexing、
+Retrieval、ContextBuilder 与 RAGChatService 仍需要更聚焦的 Unit / Integration Test；真实 Qdrant
+与端到端 RAG 验证也未形成独立自动化入口。后续修复这些模块或进入相关可靠性 Story 时，必须
+先补对应回归保护，不能把默认测试通过解释为这些路径已经完整覆盖。
 
 应该能够回答：
 

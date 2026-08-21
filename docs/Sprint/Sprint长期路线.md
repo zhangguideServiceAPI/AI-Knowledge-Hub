@@ -31,8 +31,8 @@ flowchart LR
 | Sprint 2 | Session & Identity | 我能否继续访问，怎样管理设备会话 | Redis Session、Refresh Rotation、Logout、多设备 | 已完成 |
 | Sprint 3 | Storage & Resource Management | 我的文件如何进入、保存、授权和退出系统 | File Resource、对象存储、生命周期、一致性 | 已完成 |
 | Sprint 4 | AI Gateway | 业务如何稳定、安全、可观测地调用 LLM | Provider 抽象、Prompt、Streaming、Usage | 已完成 |
-| Sprint 5 | Knowledge / RAG | 文件如何变成可检索、可评估的知识 | Parse、Chunk、Embedding、Vector Store、Retrieval | 进行中（Story 5.8） |
-| Sprint 6 | Workflow | 多步骤业务怎样编排、重试和恢复 | 状态机、分支、人工节点、执行记录 | 计划中 |
+| Sprint 5 | Knowledge / RAG | 文件如何变成可检索、可评估的知识 | Parse、Chunk、Embedding、Vector Store、Retrieval | 已完成 |
+| Sprint 6 | Workflow | 多步骤业务怎样编排、重试和恢复 | 状态机、分支、人工节点、执行记录 | 进行中（Story 6.0） |
 | Sprint 7 | Agent Runtime | 模型怎样在边界内规划并调用工具 | Tool Calling、Policy、Budget、单 Agent Loop | 计划中 |
 | Sprint 8 | MCP Integration | 怎样用标准协议连接工具与上下文 | MCP Server、Client、Resource、Prompt、Tool | 计划中 |
 | Sprint 9 | Observability | 怎样知道系统快不快、贵不贵、好不好 | Logging、Metrics、Tracing、Evaluation、Alerting | 计划中 |
@@ -55,8 +55,8 @@ flowchart LR
 - [Sprint 14：Enterprise AI SDLC](Sprint14.md)
 
 每份总控文档均包含 North Star、知识思维导图、端到端流程、Service-first 入口、Story 顺序、
-项目练习、失败边界、测试矩阵、ADR、风险、完成标准和前后 Sprint 衔接。它们是未来计划，
-不改变当前仍应一次只推进 Sprint 5 的一个 Story 和一个小步骤。
+项目练习、失败边界、测试矩阵、ADR、风险、完成标准和前后 Sprint 衔接。后续计划不改变当前
+仍应一次只推进 Sprint 6 的一个 Story 和一个小步骤。
 
 ## 工程能力阶梯
 
