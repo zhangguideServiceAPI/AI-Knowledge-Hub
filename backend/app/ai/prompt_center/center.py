@@ -109,7 +109,6 @@ _DEFAULT_PROMPTS_ROOT = Path(__file__).resolve().parents[1] / "prompts"
 # Path(__file__).resolve().parents[1] / "prompts"
 # # /backend/app/ai/prompts
 
-
 class PromptCenter:
     """管理版本化 Prompt 模板，并为调用方生成最终 Prompt。
 
@@ -147,7 +146,7 @@ class PromptCenter:
 
         if not self._prompts_root.is_dir():
             raise PromptConfigurationError("Prompt root is not available.")
-            # sorted() 按路径名称排序。
+                            # sorted() 按路径名称排序。
         prompt_directories = sorted(
             path
             for path in self._prompts_root.iterdir()
@@ -159,7 +158,7 @@ class PromptCenter:
         for prompt_directory in prompt_directories:
             if (
                 not prompt_directory.is_dir()
-                or prompt_directory.is_symlink()  # 符号链接可以理解为指向另一个文件或目录的快捷入口。
+                or prompt_directory.is_symlink() # 符号链接可以理解为指向另一个文件或目录的快捷入口。 prompts/summary -> /other/private/directory
                 or not _is_prompt_identifier(prompt_directory.name)
             ):
                 raise PromptConfigurationError("Prompt root contains an invalid entry.")
@@ -435,4 +434,10 @@ def _render_template(
 
     # ``format_map`` 只解析模板本身一次。变量值即使包含 ``{secret}``，也只是普通
     # 字符串，不会被当成第二层模板再次展开。
+    # "Write in {language} using a {style} style.".format_map(
+    #     {
+    #         "language": "Chinese",
+    #         "style": "concise",
+    #     }
+    #  )
     return template.template.format_map(dict(variables))

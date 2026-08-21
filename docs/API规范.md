@@ -273,3 +273,319 @@ Token 有效但用户状态不是 `active`：HTTP 403
   "detail": "User account is inactive."
 }
 ```
+
+## Session Management
+
+Session 管理接口属于敏感接口。除验证 Access Token 和加载 active User 外，还会使用 Token 中的 `sid` 确认当前 Redis Session 仍然存在且属于当前用户。
+
+因此，当前 Session 已 Logout、过期或被撤销后，即使 Access Token 尚未到自身 `exp`，Session 管理接口也会返回 HTTP 401。普通 `/users/me` 仍保持 Access Token 自然过期边界。
+
+### List Sessions
+
+```http
+GET /users/sessions
+Authorization: Bearer <access_token>
+```
+
+成功：HTTP 200
+
+```json
+{
+  "sessions": [
+    {
+      "id": "opaque-session-id",
+      "current": true,
+      "ip_address": "127.0.0.1",
+      "user_agent": "Example Client",
+      "created_at": "2026-07-31T10:00:00Z",
+      "last_used_at": "2026-07-31T10:30:00Z",
+      "expires_at": "2026-08-07T10:00:00Z"
+    }
+  ]
+}
+```
+
+- `current` 由 Access Token 的 `sid` 与列表项 ID 比较得到。
+- IP 和 User Agent 是可选展示信息，不作为设备身份证明或授权条件。
+- 响应不返回 `user_id`、Refresh Token Hash 或绝对过期上限。
+- 失效的 Sorted Set 索引成员在列表读取时懒清理，不返回客户端。
+
+认证无效或当前 Redis Session 已失效：HTTP 401。账号停用：HTTP 403。Redis 不可用：HTTP 503。
+
+### Revoke One Session
+
+```http
+DELETE /users/sessions/{session_id}
+Authorization: Bearer <access_token>
+```
+
+撤销成功：HTTP 204，无响应 Body。
+
+- 只能撤销当前用户拥有的 Session。
+- 目标是当前 Session 时，客户端收到 204 后应清除本地 Access/Refresh Token。
+- 目标是其他设备 Session 时，当前设备继续登录；目标设备的 Refresh 能力立即失效。
+- 已签发的普通 Access Token 默认继续有效到自身 `exp`，但敏感 Session 管理接口会因二次校验立即返回 401。
+- 目标不存在、已过期或属于其他用户时统一返回 HTTP 404，避免泄露其他用户 Session。
+
+认证无效或当前 Redis Session 已失效：HTTP 401。账号停用：HTTP 403。Redis 不可用：HTTP 503。
+
+### Revoke All Sessions
+
+```http
+DELETE /users/sessions
+Authorization: Bearer <access_token>
+```
+
+撤销成功：HTTP 204，无响应 Body。
+
+后端通过 Redis Lua 原子验证当前 Session，并撤销操作开始前已经存在的当前用户全部 Session。当前客户端收到 204 后必须清除本地 Token。Lua 执行完成后新创建的 Session 视为新的登录，不属于本次撤销集合。
+
+认证无效或当前 Redis Session 已失效：HTTP 401。账号停用：HTTP 403。Redis 不可用：HTTP 503。
+
+## File Resources
+
+File Resource 是可查询、可授权和可删除的业务资源；真实 Bytes 保存在当前配置的 LocalStorage 或 MinIO，MySQL 保存 Metadata。客户端只使用稳定 `file_id`，不能提交或获取内部 Bucket、Object Key 或服务器路径。
+
+所有 Files API 都要求：
+
+```http
+Authorization: Bearer <access_token>
+```
+
+当前权限模型为 Owner-only。详情、下载和删除统一查询：
+
+```text
+file_id 匹配
+AND owner_id = current_user.id
+AND status = ready
+AND deleted_at IS NULL
+```
+
+资源不存在、属于其他用户或处于不可见状态时统一返回 HTTP 404。
+
+### Upload File
+
+```http
+POST /files
+Content-Type: multipart/form-data; boundary=<boundary>
+Authorization: Bearer <access_token>
+```
+
+Multipart 只包含一个必需的 `upload` 文件 Part。`owner_id` 来自认证用户，客户端不能提交 File ID、Provider、Bucket、Object Key 或服务器路径。
+
+上传成功：HTTP 201
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "original_filename": "report.pdf",
+  "content_type": "application/pdf",
+  "size_bytes": 1048576,
+  "status": "ready",
+  "created_at": "2026-08-04T10:00:00",
+  "updated_at": "2026-08-04T10:00:00"
+}
+```
+
+当前允许 PDF、PNG 和 JPEG，并同时检查文件名、扩展名、客户端 MIME、文件签名和实际流内大小。默认大小上限为 20 MiB，Chunk Size 为 1 MiB；最终值由 Settings 控制。
+
+| 场景 | HTTP | 对外 detail |
+| --- | ---: | --- |
+| Multipart 缺少 `upload` | 422 | FastAPI validation error |
+| 文件名非法或文件为空 | 400 | `Invalid upload metadata.` |
+| Access Token 无效 | 401 | `Invalid or missing access token.` |
+| 实际字节超过上限 | 413 | `Uploaded file is too large.` |
+| 类型、扩展名或文件签名不支持 | 415 | `Unsupported file type.` |
+| StorageProvider 不可用 | 503 | `File storage is temporarily unavailable.` |
+| Metadata 提交或补偿内部失败 | 500 | `File upload failed.` |
+
+只有对象写入和 Metadata 最终进入 `ready` 后才返回 HTTP 201。失败上传不会作为普通文件资源返回。
+
+### List Files
+
+```http
+GET /files?limit=20&offset=0
+Authorization: Bearer <access_token>
+```
+
+成功：HTTP 200
+
+```json
+{
+  "items": [],
+  "limit": 20,
+  "offset": 0
+}
+```
+
+- `limit` 默认 20，范围为 1 至 100。
+- `offset` 默认 0，必须大于等于 0。
+- 只返回当前用户 `ready` 且未删除的资源。
+- 按 `created_at DESC, id DESC` 稳定排序。
+- 分页参数非法返回 HTTP 422；认证无效返回 HTTP 401。
+
+### Get File Metadata
+
+```http
+GET /files/{file_id}
+Authorization: Bearer <access_token>
+```
+
+成功：HTTP 200，响应结构与 Upload 成功的 File Resource 相同。
+
+响应不包含 `owner_id`、`storage_provider`、Bucket、Object Key、SHA-256、失败原因或删除时间。资源不存在、非所有者或不可见时返回 HTTP 404：
+
+```json
+{
+  "detail": "File not found."
+}
+```
+
+### Download File
+
+```http
+GET /files/{file_id}/download
+Authorization: Bearer <access_token>
+```
+
+权限和状态验证通过后，FastAPI 从当前 StorageProvider 代理流式返回文件：
+
+```http
+Content-Type: <validated-content-type>
+Content-Length: <size-bytes>
+Content-Disposition: attachment; filename*=UTF-8''<encoded-filename>
+```
+
+响应按配置 Chunk 读取，不把完整文件一次载入内存，并在完成或异常后关闭本地文件流或 MinIO `StreamingBody`。
+
+| 场景 | HTTP | 对外 detail |
+| --- | ---: | --- |
+| Access Token 无效 | 401 | `Invalid or missing access token.` |
+| 资源不存在、非所有者或不可见 | 404 | `File not found.` |
+| Metadata 存在但对象缺失 | 500 | `File content is unavailable.` |
+| Provider 临时读取失败 | 503 | `File storage is temporarily unavailable.` |
+
+当前 LocalStorage 和 MinIO 都使用后端代理流，尚未向客户端返回 Presigned URL。
+
+### Delete File
+
+```http
+DELETE /files/{file_id}
+Authorization: Bearer <access_token>
+```
+
+删除成功：HTTP 204，无响应 Body。
+
+删除先将资源从 `ready` 变为 `deleting`，再删除对象，最后进入 `deleted` 并记录 `deleted_at`。Provider 删除失败或最终 Metadata 状态不确定时进入内部 `cleanup_required`，不重新对普通用户可见。
+
+重复删除不会再次调用 Provider；资源已不可见时统一返回 HTTP 404。Provider 暂时不可用返回 HTTP 503，数据库状态提交或补偿失败返回安全 HTTP 500。
+
+## AI Chat
+
+### Non-stream Chat
+
+```http
+POST /ai/chat
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "messages": [
+    {
+      "content": "请用三个要点解释 AI Gateway 的作用。"
+    }
+  ],
+  "model": "general",
+  "temperature": 0.3,
+  "max_output_tokens": 256
+}
+```
+
+`messages` 至少一条，客户端只提交 `content`，不能提交 `role`、`user_id`、Provider、
+真实 Provider Model、Base URL、API Key 或厂商特有字段。`model`、`temperature` 和
+`max_output_tokens` 可以省略，使用服务端配置的默认值。显式输出上限超过模型策略时
+直接拒绝，不静默截断。
+
+成功：HTTP 200
+
+```json
+{
+  "request_id": "服务端生成的 UUID",
+  "model": "general",
+  "content": "模型回答",
+  "finish_reason": "stop",
+  "usage": {
+    "input_tokens": 24,
+    "output_tokens": 80,
+    "total_tokens": 104
+  }
+}
+```
+
+Provider 没有返回可信统计时，`usage` 为 `null`，不伪造为零。合法生成达到输出预算
+上限时，`finish_reason` 为 `length`；自然结束时为 `stop`。响应不返回真实 Provider、
+内部模型名称、原始厂商响应或 Secret。
+
+AI 领域错误统一使用 `{code, detail}`：
+
+| 场景 | HTTP | `code` |
+| --- | ---: | --- |
+| 模型别名不存在 | 400 | `ai_invalid_model` |
+| 生成参数或 Context Window 非法 | 400 | `ai_invalid_request` |
+| Provider Rate Limit | 429 | `ai_provider_rate_limit` |
+| Provider Timeout | 504 | `ai_provider_timeout` |
+| Provider 不可用 | 503 | `ai_provider_unavailable` |
+| 未预期 AI 内部错误 | 500 | `ai_internal_error` |
+
+请求 Schema 的结构校验失败仍由 FastAPI 返回 HTTP 422。Provider 原始错误、API Key、
+请求正文和模型回答不会进入错误响应或普通日志。
+
+### Streaming Chat
+
+流式接口已在 Story 4.6 实现，复用非流式请求 Schema 和认证边界：
+
+```http
+POST /ai/chat/stream
+```
+
+它使用独立的 `text/event-stream` 响应，并遵循 `delta -> usage -> done` 或安全
+`error` 终态。首 Event 预取阶段和流开始后的客户端断开都会取消上游 Provider 请求
+并释放连接。
+
+首 Event 之前发生的模型、限流、超时或不可用错误仍使用上表 JSON HTTP 状态；首
+Event 预取成功后 HTTP 200 已确定，后续领域错误使用单个公共 SSE `error` Event，
+且不会再发送 `done`。响应包含 `Cache-Control: no-cache` 与
+`X-Accel-Buffering: no`，避免代理缓冲完整回答。
+
+```text
+event: delta
+data: {"request_id":"...","content":"第一段"}
+
+event: usage
+data: {"request_id":"...","input_tokens":24,"output_tokens":80,"total_tokens":104}
+
+event: done
+data: {"request_id":"...","finish_reason":"stop"}
+```
+
+Provider 未返回可信 Usage 时对应 Token 字段为 `null`。客户端断开不会生成一个无法
+送达的 `cancelled` Event；服务端让原生取消沿调用链传播，并关闭 Service、Gateway、
+Provider 与 SDK Stream。
+
+### 服务端 Usage 审计
+
+非流式与流式请求结束后，服务端为认证用户记录一条 `success / failed / cancelled`
+终态。记录包含项目 Request ID、模型路由、Prompt Key/Version、可信 Token、Latency、
+流式 TTFT 和可选成本快照，但不属于公共 API 响应。
+
+Provider 未返回完整 Token 时数据库保存 `NULL`，不伪造为零。模型配置同时提供价格、
+币种和价格版本且输入/输出 Token 都已知时，服务端保存本次请求发生时的估算成本快照；
+它不是 Provider 账单，也不会因为以后修改价格配置而重算。
+
+Usage 与日志都不保存 Message、System Prompt、模型回答、API Key、Base URL、原始
+Provider 请求响应、SSE Chunk 或原始异常正文。Usage 写入失败不会改变已经确定的公共
+JSON/SSE 结果。

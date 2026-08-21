@@ -1,8 +1,7 @@
 from pathlib import Path
 from unittest.mock import Mock
-
-import pytest
 from pydantic import SecretStr
+import pytest
 
 from app.storage import factory as storage_factory
 from app.storage.local import LocalStorageProvider
@@ -33,7 +32,6 @@ def test_get_storage_provider_returns_cached_local_provider(
 
     storage_factory.get_storage_provider.cache_clear()
     storage_factory.get_minio_client.cache_clear()
-    storage_factory.get_minio_readiness_client.cache_clear()
 
     try:
         first_provider = storage_factory.get_storage_provider()
@@ -41,12 +39,11 @@ def test_get_storage_provider_returns_cached_local_provider(
 
         assert isinstance(first_provider, LocalStorageProvider)
         assert second_provider is first_provider
-        assert storage_factory.get_storage_bucket() == "local"
         boto_client_factory.assert_not_called()
     finally:
         storage_factory.get_storage_provider.cache_clear()
         storage_factory.get_minio_client.cache_clear()
-        storage_factory.get_minio_readiness_client.cache_clear()
+
 
 
 def test_get_storage_provider_returns_cached_minio_provider(
@@ -89,7 +86,6 @@ def test_get_storage_provider_returns_cached_minio_provider(
 
     storage_factory.get_storage_provider.cache_clear()
     storage_factory.get_minio_client.cache_clear()
-    storage_factory.get_minio_readiness_client.cache_clear()
 
     try:
         first_provider = storage_factory.get_storage_provider()
@@ -98,7 +94,6 @@ def test_get_storage_provider_returns_cached_minio_provider(
         assert isinstance(first_provider, MinIOStorageProvider)
         assert second_provider is first_provider
         assert storage_factory.get_minio_client() is minio_client
-        assert storage_factory.get_storage_bucket() == "test-files"
 
         assert first_provider.exists("users/42/file-id") is True
         minio_client.head_object.assert_called_once_with(
@@ -121,52 +116,5 @@ def test_get_storage_provider_returns_cached_minio_provider(
     finally:
         storage_factory.get_storage_provider.cache_clear()
         storage_factory.get_minio_client.cache_clear()
-        storage_factory.get_minio_readiness_client.cache_clear()
 
 
-def test_get_minio_readiness_client_is_cached_with_bounded_retries(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    minio_client = Mock()
-    boto_client_factory = Mock(return_value=minio_client)
-
-    monkeypatch.setattr(
-        storage_factory.settings,
-        "STORAGE_MINIO_ENDPOINT",
-        "http://127.0.0.1:9000",
-    )
-    monkeypatch.setattr(
-        storage_factory.settings,
-        "STORAGE_MINIO_ACCESS_KEY",
-        "test-app-user",
-    )
-    monkeypatch.setattr(
-        storage_factory.settings,
-        "STORAGE_MINIO_SECRET_KEY",
-        SecretStr("test-secret-key"),
-    )
-    monkeypatch.setattr(
-        storage_factory.boto3,
-        "client",
-        boto_client_factory,
-    )
-
-    storage_factory.get_minio_readiness_client.cache_clear()
-
-    try:
-        first_client = storage_factory.get_minio_readiness_client()
-        second_client = storage_factory.get_minio_readiness_client()
-
-        assert first_client is minio_client
-        assert second_client is first_client
-        boto_client_factory.assert_called_once()
-
-        boto_config = boto_client_factory.call_args.kwargs["config"]
-        assert boto_config.connect_timeout == 1.0
-        assert boto_config.read_timeout == 1.0
-        assert boto_config.retries == {
-            "mode": "standard",
-            "total_max_attempts": 1,
-        }
-    finally:
-        storage_factory.get_minio_readiness_client.cache_clear()

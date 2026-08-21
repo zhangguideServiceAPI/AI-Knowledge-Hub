@@ -150,3 +150,25 @@ Overall            93/100
 - 是否通过 Review。
 - 是否存在阻断问题。
 - 尚未解决的非阻断风险或测试缺口。
+
+### Rule 19: Async & Streaming
+
+Async 代码必须证明没有在 Event Loop 中执行长期阻塞 I/O。Async Generator、StreamingResponse 和外部 Stream 必须覆盖正常完成、异常、客户端断开、取消和资源关闭。
+
+流式响应开始后不能再依赖修改 HTTP 状态码表达错误，也不能无条件重试造成重复输出或重复副作用。
+
+### Rule 20: External Provider
+
+业务 Service 不得直接依赖对象存储、AI Provider 或其他外部 SDK 类型。Provider/Adapter 必须转换请求、响应和异常，并通过 Fake/Contract Test 与真实 Integration Test 分别验证稳定契约和真实协议。
+
+Timeout、Retry 和连接复用必须明确；不可重试错误、总体 Deadline 和恢复行为不能依赖 SDK 默认值猜测。
+
+### Rule 21: Security & Privacy
+
+Review 必须检查密码、Token、Session ID、API Key、Secret、用户文件内容、Prompt、模型回答和外部原始异常是否进入日志、响应、数据库或测试快照。
+
+只有业务确实需要且已有权限、保留和脱敏策略时，才能持久化用户内容。安全响应不得泄露其他用户资源、内部路径、Bucket、Object Key、Provider Endpoint 或凭据状态。
+
+### Rule 22: Compatibility & Migration
+
+API、数据库、配置、Token、Session 和持久化 Metadata 的变更必须检查新旧版本兼容窗口。Migration 必须 Review Upgrade/Downgrade；配置新增必须同步 `.env.example` 和启动校验；切换 Provider 前必须处理已有状态和数据迁移。

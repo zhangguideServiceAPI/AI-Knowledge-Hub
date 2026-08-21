@@ -124,6 +124,15 @@ app/ai/
   providers/
     fake.py            # 不访问网络的确定性测试替身
     openai_compatible.py # OpenAI-compatible SDK Adapter
+  prompt_center/
+    models.py          # 未渲染模板与渲染结果的不可变契约
+    exceptions.py      # 独立 Prompt 领域异常
+    center.py          # 文件加载、全量校验、严格渲染与模板缓存
+    factory.py         # 预加载并缓存 PromptCenter 单例
+  prompts/
+    assistant/v1/      # 无变量的默认 System Prompt
+    summary/v1/        # language + style 变量示例
+    translation/v1/    # 语言与 tone 变量示例
 app/api/
   ai.py                # 认证的非流式与 SSE Chat Router
   ai_sse.py            # 公共 SSE Event 编码与流中安全错误终态
@@ -134,5 +143,5 @@ app/services/
 ```
 
 `models/chat_usage.py` 和 `db/repositories/chat_usage_repository.py` 仍未创建，留给 Usage
-Story。Prompt Center 也尚未接入 ChatService；当前 Service 使用受控 USER Message
-完成非流式与流式主线。
+Story。Prompt Center 已由依赖注入接入 ChatService；非流式和流式请求都使用受控
+SYSTEM Message，并把公共 API Message 转换为 USER Message。

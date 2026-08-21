@@ -126,22 +126,23 @@ File Router
 | Metadata | 描述文件的业务字段，不是文件正文 |
 | SHA-256 | 对文件内容计算的摘要，用于完整性和重复观察 |
 | ETag | 存储服务返回的对象版本或内容标识，不能默认等同于 SHA-256 |
-| Signed URL | 存储服务签发的短期访问能力；具体使用策略在后续 Story 确定 |
+| Signed URL | 存储服务签发的短期访问能力；当前未启用，未来按带宽与规模数据评估 |
 | File Resource ID | 本项目面向客户端的稳定资源 ID |
 
-## 8. 已确认与未开始
+## 8. 当前实现与后续边界
 
-已确认：
+已经实现：
 
-- 文件 Bytes 与 Metadata 分离。
-- LocalStorage 用于快速开发和 Unit Test。
-- MinIO 用于真实对象存储契约验证。
-- 未来 Provider 可以扩展到 COS 或 S3，但本 Sprint 不提前接入。
+- 文件 Bytes 与 MySQL Metadata 分离。
+- UUID File Resource、Owner-only 权限、状态机、SHA-256 和服务端 Object Key。
+- LocalStorage 快速开发与 Unit Test。
+- MinIO S3-compatible Provider、最小权限应用账号、Readiness 和真实集成测试。
+- 上传、列表、详情、后端代理下载、删除和可重试 Cleanup 边界。
+- Provider 与 Metadata 无共享事务时的状态和补偿策略。
 
-尚未开始：
+后续边界：
 
-- 上传 HTTP 契约、文件大小和类型策略。
-- 具体 Metadata 表、Migration 和 ID 格式。
-- StorageProvider 方法签名。
-- 下载实现选择、删除补偿和对象存储一致性策略。
-- RAG 解析、Chunk、Embedding、CDN 和分片续传。
+- RAG 解析、Chunk、Embedding 和 Vector Store 属于 Sprint 5。
+- CDN、Presigned URL、Range Request 和分片续传需要真实规模数据后再设计。
+- COS 或 S3 扩展必须通过现有 Provider Contract 和生命周期测试。
+- 异步 Cleanup Worker、任务调度和后台重试属于 Async Platform。

@@ -8,15 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import logger
 from app.db.repositories.file_repository import FileRepository
-from app.models.file_resource import (
-    FileFailureReason,
-    FileResource,
-    FileStatus,
-)
 from app.schemas.file import (
     FileResourceListResponse,
     FileResourceResponse,
 )
+from app.storage.provider import StorageProvider
+from app.storage.upload_validation import inspect_upload
 from app.storage.exceptions import (
     EmptyFileError,
     FileCleanupFailedError,
@@ -31,8 +28,11 @@ from app.storage.exceptions import (
     StorageUnavailableError,
     UnsupportedFileTypeError,
 )
-from app.storage.provider import StorageProvider
-from app.storage.upload_validation import inspect_upload
+from app.models.file_resource import (
+    FileFailureReason,
+    FileResource,
+    FileStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.CLEANUP_FAILED.value,
+                    failure_reason="cleanup_failed",
                 )
                 self._session.commit()
 
@@ -158,7 +158,7 @@ class FileService:
             self._repository.update_status(
                 resource,
                 FileStatus.UPLOAD_FAILED,
-                failure_reason=FileFailureReason.PROVIDER_WRITE_FAILED.value,
+                failure_reason="provider_write_failed",
             )
             self._session.commit()
 
@@ -185,7 +185,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.CLEANUP_FAILED.value,
+                    failure_reason="cleanup_failed",
                 )
                 self._session.commit()
                 raise FileUploadFailedError() from cleanup_error
@@ -193,7 +193,7 @@ class FileService:
             self._repository.update_status(
                 resource,
                 FileStatus.UPLOAD_FAILED,
-                failure_reason=FileFailureReason.METADATA_COMMIT_FAILED.value,
+                failure_reason="metadata_commit_failed",
             )
             self._session.commit()
             logger.error(
@@ -296,7 +296,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.PROVIDER_DELETE_FAILED.value,
+                    failure_reason="provider_delete_failed",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -324,9 +324,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=(
-                        FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value
-                    ),
+                    failure_reason="metadata_delete_commit_failed",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -381,7 +379,7 @@ class FileService:
                 self._repository.update_status(
                     resource,
                     FileStatus.CLEANUP_REQUIRED,
-                    failure_reason=FileFailureReason.STORAGE_OBJECT_MISSING.value,
+                    failure_reason="storage_object_missing",
                 )
                 self._session.commit()
             except SQLAlchemyError as state_error:
@@ -423,12 +421,12 @@ class FileService:
         self._ensure_storage_matches(resource)
 
         upload_cleanup_reasons = {
-            FileFailureReason.CLEANUP_FAILED.value,
+            "cleanup_failed",
         }
         delete_cleanup_reasons = {
-            FileFailureReason.PROVIDER_DELETE_FAILED.value,
-            FileFailureReason.METADATA_DELETE_COMMIT_FAILED.value,
-            FileFailureReason.STORAGE_OBJECT_MISSING.value,
+            "provider_delete_failed",
+            "metadata_delete_commit_failed",
+            "storage_object_missing",
         }
 
         # 必须先判断目标状态，再删除对象。

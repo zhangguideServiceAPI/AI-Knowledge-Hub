@@ -52,10 +52,12 @@ GET /files/{file_id}/download
   -> 验证 Access Token，得到 current_user.id
   -> 查询 file_id + owner_id + status=READY + deleted_at IS NULL
   -> 从 Metadata 获取内部 Provider、Bucket、Object Key
-  -> 后续 Story 选择代理流或短期 Signed URL
+  -> 验证 Metadata 与当前 Provider / Bucket 匹配
+  -> StorageProvider.open(object_key)
+  -> FastAPI StreamingResponse 按 Chunk 代理输出并关闭流
 ```
 
-不存在、非所有者、上传中、删除中、失败或已删除资源都返回 404。下载策略在 Story 3.6 决定，不能在本文件描述为已经使用 Signed URL。
+不存在、非所有者、上传中、删除中、失败或已删除资源都返回 404。当前 LocalStorage 与 MinIO 都使用权限检查后的后端代理流；未来只有在带宽和并发数据证明需要时，才评估短 TTL Signed URL。
 
 ## 4. 删除主线
 
@@ -109,9 +111,9 @@ Cleanup 是内部 Service 能力，不暴露用户 Router，也不接收 `owner_
 | --- | --- | --- |
 | `storage.upload.success` | INFO | `user_id`、`file_id`、`size_bytes` |
 | `storage.upload.rejected` | WARNING | `user_id`、固定 `reason` |
-| `storage.permission.rejected` | WARNING | `user_id`、固定 `reason` |
-| `storage.provider.unavailable` | ERROR | operation、provider、异常类型 |
-| `storage.compensation.failed` | ERROR | operation、provider、`file_id`、异常类型 |
+| `storage.provider.unavailable` | ERROR | HTTP method、path |
+| `storage.download.failed` | ERROR | `user_id`、`file_id`、固定 `reason` |
+| `storage.compensation.failed` | ERROR | operation、`file_id`、固定 `reason` |
 | `storage.delete.success` | INFO | `user_id`、`file_id` |
 | `storage.cleanup.success` | INFO | `file_id`、目标状态 |
 | `storage.cleanup.failed` | ERROR | `file_id`、固定 `reason` |

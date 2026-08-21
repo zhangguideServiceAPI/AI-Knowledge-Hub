@@ -112,7 +112,7 @@ Redis Session 还为以下能力提供基础：
 - Session TTL。
 - Replay Attack 检测。
 
-Redis Key、Token Hash、用户 Session 索引和生命周期已经在 `session-architecture.md` 与 ADR-0016 中确定；原子轮换方案继续由 Refresh Token 设计和 Story 2.3 确定。
+Redis Key、Token Hash、用户 Session 索引和生命周期由 `session-architecture.md` 与 ADR-0016 固化；原子 Rotation、Replay 撤销和客户端恢复契约也已经在 Refresh Token 文档、ADR-0017 至 ADR-0019 及对应测试中实现。
 
 ### 3.5 OAuth2 / OIDC
 
@@ -139,12 +139,12 @@ OAuth2 主要解决授权问题，即第三方应用可以代表用户访问哪�
 | Cookie Session | 保存完整 Session | 容易 | 容易 | 传统 Web 登录 |
 | JWT Access Token | 不保存单个 Token 状态 | 困难，通常等待过期 | 缺少会话视角 | 短期 API 访问 |
 | JWT + Refresh Token | 取决于是否保存 Refresh 状态 | 无状态时困难 | 无状态时困难 | 减少重复登录 |
-| JWT + Redis Session | 保存 Refresh Session | 可以撤销 Refresh | 支持独立设备 Session | 当前 Sprint 目标 |
+| JWT + Redis Session | 保存 Refresh Session | 可以撤销 Refresh | 支持独立设备 Session | 当前项目实现 |
 | OAuth2 / OIDC | 由具体系统决定 | 由协议和本地会话共同决定 | 由本地系统设计 | 第三方授权、SSO 和身份联合 |
 
 ## 5. 当前项目结论
 
-AI-Knowledge-Hub 继续使用 HS256 短期 Access Token，并在 Sprint 2 引入 Refresh Token 和 Redis Session。
+AI-Knowledge-Hub 当前使用 HS256 短期 Access Token、Refresh Token 和 Redis Session。
 
 该方案的边界为：
 
