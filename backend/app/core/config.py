@@ -94,6 +94,13 @@ class AIModelConfig(BaseModel):
     default_max_output_tokens: PositiveInt  # 客户端未提交时的默认输出预算
     max_output_tokens: PositiveInt  # 服务端允许的最大输出预算
     context_window_tokens: PositiveInt  # 输入与输出共同使用的上下文上限
+    # RAG 必须按 Chat 模型的 tokenizer 计算 Context；不能复用 Embedding 模型的编码表。
+    tokenizer_encoding: str = Field(
+        default="cl100k_base",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
     # 未配置 Pricing 或 Provider 没有返回完整 Token 时，Usage 成本保持未知。
     pricing: AIModelPricingConfig | None = None
 

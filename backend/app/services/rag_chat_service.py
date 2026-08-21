@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from app.ai.prompt_center import PromptCenter
 from app.ai.provider import TokenUsage
+from app.ai.exceptions import AIInvalidModelError
 from app.core.config import AIModelConfig
 from app.knowledge.budget import RAGTokenBudgetCalculator
 from app.knowledge.context import BuiltContext, ContextBuilder
@@ -195,12 +196,16 @@ class RAGChatService:
         )
 
     def _resolve_model_config(self, model_alias: str | None) -> AIModelConfig:
-        """解析请求模型别名；未指定时使用服务器默认值，未知别名拒绝进入预算计算。"""
+        """第一版 RAG 固定默认 Chat 模型，避免不同模型复用错误 tokenizer。"""
 
         resolved_alias = model_alias or self._default_model_alias
         if resolved_alias is None:
-            raise ValueError("No default RAG chat model is configured.")
+            raise AIInvalidModelError("No default RAG chat model is configured.")
+        if resolved_alias != self._default_model_alias:
+            raise AIInvalidModelError(
+                "RAG currently supports only the default chat model."
+            )
         model_config = self._model_configs.get(resolved_alias)
         if model_config is None:
-            raise ValueError("Requested RAG chat model is not configured.")
+            raise AIInvalidModelError("Requested RAG chat model is not configured.")
         return model_config
