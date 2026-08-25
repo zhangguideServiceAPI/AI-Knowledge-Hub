@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.db.repositories.workflow_repository import WorkflowRepository
 from app.models.workflow import WorkflowAttempt, WorkflowRun, WorkflowStepRun
+from app.workflow.definition import WorkflowStepDefinition
 from app.workflow.exceptions import (
     WorkflowDefinitionError,
     WorkflowDefinitionTopologyError,
 )
 from app.workflow.registry import WorkflowDefinitionRegistry, WorkflowNodeRegistry
+from app.workflow.routing import WorkflowRouteResolver
 from app.workflow.state_machine import WorkflowRunStatus
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ class StepExecutionResult:
     attempt_number: int
     run_status: WorkflowRunStatus
     output_payload: dict[str, object]
+    next_step_id: str | None
 
 
 class SequentialWorkflowExecutor:
@@ -46,9 +49,10 @@ class SequentialWorkflowExecutor:
         self._repository = WorkflowRepository(session)
         self._definition_registry = definition_registry
         self._node_registry = node_registry
+        self._route_resolver = WorkflowRouteResolver()
 
     def execute_next(
-        self, run_id: str, node_input: object
+        self, run_id: str, node_input: object | None = None
     ) -> StepExecutionResult | None:
         """认领并执行最早 pending Step；无可执行 Step 时返回 None。"""
 
@@ -62,22 +66,28 @@ class SequentialWorkflowExecutor:
             )
             definition_step = definition.step_by_id(step.step_id)
             node = self._node_registry.get(definition_step.node_key)
+            resolved_input = self._resolve_node_input(
+                run, step, definition_step, node_input
+            )
         except WorkflowDefinitionError:
             # Step 已被原子认领，配置错误也必须留下可审计的终态，不能卡在 running。
             self._fail_claimed_step(run_id, step.id, attempt.id)
             raise
-        if not isinstance(node_input, node.input_type):
+        if not isinstance(resolved_input, node.input_type):
             self._fail_claimed_step(run_id, step.id, attempt.id)
             raise WorkflowDefinitionTopologyError(
                 f"Node input does not match {definition_step.node_key} contract."
             )
 
         try:
-            output = node.execute(node_input)
+            output = node.execute(resolved_input)
             if not isinstance(output, node.output_type) or not isinstance(output, dict):
                 raise WorkflowDefinitionTopologyError(
                     f"Node {definition_step.node_key} must return its declared JSON object output."
                 )
+            next_step_id = self._route_resolver.select_next_step_id(
+                definition_step, node_output=output
+            )
         except Exception:
             self._fail_claimed_step(run_id, step.id, attempt.id)
             logger.exception(
@@ -86,7 +96,39 @@ class SequentialWorkflowExecutor:
             )
             raise
 
-        return self._complete_claimed_step(run_id, step.id, attempt, output)
+        return self._complete_claimed_step(
+            run_id, step.id, attempt, output, next_step_id
+        )
+
+    def _resolve_node_input(
+        self,
+        run: WorkflowRun,
+        step: WorkflowStepRun,
+        definition_step: WorkflowStepDefinition,
+        supplied_input: object | None,
+    ) -> object:
+        """优先执行 Definition 映射；未声明映射时才接受调用方的明确输入。"""
+
+        if not definition_step.input_bindings:
+            if supplied_input is None:
+                raise WorkflowDefinitionTopologyError(
+                    "A Step without input_bindings requires supplied node_input."
+                )
+            return supplied_input
+        if supplied_input is not None:
+            raise WorkflowDefinitionTopologyError(
+                "A Step with input_bindings does not accept supplied node_input."
+            )
+        previous_step = self._repository.get_latest_succeeded_step_before(
+            run.id, step.step_index
+        )
+        return self._route_resolver.build_node_input(
+            definition_step,
+            run_input=run.run_input,
+            previous_step_output=(
+                previous_step.output_payload if previous_step is not None else None
+            ),
+        )
 
     def _claim_next_step(
         self, run_id: str
@@ -115,6 +157,7 @@ class SequentialWorkflowExecutor:
         step_id: str,
         attempt: WorkflowAttempt,
         output: dict[str, object],
+        next_step_id: str | None,
     ) -> StepExecutionResult:
         """短事务二成功路径：持久化输出、收口 Step，并在最后一步完成 Run。"""
 
@@ -138,6 +181,7 @@ class SequentialWorkflowExecutor:
             attempt.attempt_number,
             WorkflowRunStatus(run.status),
             output,
+            next_step_id,
         )
 
     def _fail_claimed_step(self, run_id: str, step_id: str, attempt_id: str) -> None:

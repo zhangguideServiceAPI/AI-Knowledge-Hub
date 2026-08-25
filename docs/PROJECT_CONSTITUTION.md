@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.3 Sequential Executor
+Current Story: Story 6.4 Mapping & Branching
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Continue from the minimum sequential executor into controlled mapping and fixed branching
+  - Continue from controlled mapping and fixed branching into retry, resume and idempotent recovery
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -206,10 +206,11 @@ Completed:
   - WorkflowRun, WorkflowStepRun and WorkflowAttempt models, migration and database constraints
   - Immutable Workflow Definition, Node Protocol, Registry and startup validation
   - SequentialWorkflowExecutor, conditional Step claim and durable Attempt / StepRun / Run closure
+  - Controlled input mapping, fixed branch resolution and Executor use of durable input snapshots
 
 Not Started:
-  - Controlled mapping, fixed branching and persisted state transition Service
-  - Retry, approval and API
+  - Retry, resume, idempotency and persisted branch state transition Service
+  - Approval and API
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。

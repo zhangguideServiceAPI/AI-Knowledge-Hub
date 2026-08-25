@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.3 Sequential Executor
-Current Step: 已完成最小顺序 Executor 的认领、事务外 Node 调用与 Attempt / StepRun / Run 收口；下一步进入受控字段映射与固定条件分支
+Current Story: Story 6.4 Mapping & Branching
+Current Step: 已完成受控字段映射、固定条件分支及其 Executor 输入接入；下一步进入 Retry、Resume 与幂等恢复
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -228,15 +228,15 @@ WorkflowDefinition(key, version, input_type, start_step_id)
   两个表均在组装后只读，Registry 校验绝不调用 `execute()`。
 - 启动期明确拒绝：重复 Node key、重复 Definition key/version、缺 Node、未知后继、多个前驱、
   环、不可达 Step、Definition/Node 输入不匹配和相邻 Node 输出/输入不匹配。
-- 当前 `next_step_id` 只表达固定顺序；字段映射和条件分支将在 Story 6.4 加入，不能现在偷用
-  `dict`、字符串表达式或 `eval` 绕过类型校验。
+- 当时 `next_step_id` 只表达固定顺序；字段映射和条件分支已在 Story 6.4 以受控契约加入，仍然
+  不能使用任意 `dict`、字符串表达式或 `eval` 绕过类型校验。
 
 因此 `start_run()` 在后续 Story 只会使用已验证的 Definition 创建 Run；若历史版本没有注册，
 必须安全报 `WorkflowDefinitionNotFoundError`，绝不改用最新 Definition。
 
 ### 1.3 Story 6.3 已实现：最小顺序 Executor 与两段短事务
 
-`SequentialWorkflowExecutor.execute_next(run_id, node_input)` 是当前唯一公开执行入口：它只处理
+`SequentialWorkflowExecutor.execute_next(run_id, node_input=None)` 是当前唯一公开执行入口：它只处理
 处于 `running` 的 Run 中 `step_index` 最小的 `pending` Step；没有可认领工作时返回 `None`，而
 不是把并发的正常竞争误写成系统错误。
 
@@ -266,8 +266,37 @@ WorkflowDefinition(key, version, input_type, start_step_id)
   Executor 都会尝试将 Attempt、StepRun 与 Run 收口为 `failed`，避免留下无法解释的 `running`。
 - 当前输出限定为可持久化的 JSON object（`dict[str, object]`）；大结果、文件或敏感原文不能
   塞进 `output_payload`，应在后续通过受控 Artifact / File Resource 引用。
-- 此 Story 尚未实现从 `run_input` / 上一步输出构造下一步输入，也没有条件分支、审批等待、重试、
-  Service/API 或后台 Worker；这些职责不能从 Executor 的最小实现中“顺手补上”。
+- 当时尚未实现从 `run_input` / 上一步输出构造下一步输入或条件分支；这两项已在 Story 6.4 加入。
+  审批等待、重试、Service/API 和后台 Worker 仍不属于此最小执行器。
+
+### 1.4 Story 6.4 已实现：受控映射与固定条件分支
+
+这一层只解决两个确定性问题：下一 Node 的字段从哪里来，以及当前 Node 的安全 JSON 输出允许走向
+哪一个后继。它不是脚本语言、规则引擎或让模型自由决定路径的入口。
+
+```text
+WorkflowInputBinding
+  target_field <- run_input.source_field
+  target_field <- previous_step_output.source_field
+
+WorkflowBranchDefinition(selector_field="decision")
+  "approved" -> "index"
+  "rejected" -> "record_rejection"
+```
+
+- `WorkflowInputSource` 只有 `run_input` 与 `previous_step_output`；每个 `WorkflowInputBinding`
+  只能读取它们的顶层字段并写入唯一的目标字段，不能访问任意对象属性、环境变量或客户端临时参数。
+- `WorkflowBranchDefinition` 保存非空且不重复的 `WorkflowBranchCase`。一个 Step 只能有线性
+  `next_step_id`、固定 `branch` 或终点三者之一；所有候选目标在应用启动时都由 Registry 检查存在、
+  可达、无环、无多前驱且类型兼容。
+- `WorkflowRouteResolver` 是不访问数据库、不执行 Node 的纯计算类：`build_node_input()` 缺字段时
+  抛 `WorkflowInputMappingError`；`select_next_step_id()` 缺 selector、selector 非字符串或值不在
+  case 中时抛 `WorkflowBranchResolutionError`。因此没有“默认批准”或静默回退分支。
+- Executor 对声明 `input_bindings` 的 Step 不接受外部 `node_input`；它只读取持久化的 Run 快照和
+  最后一个已成功 Step 的有限输出。无 bindings 的旧线性 Step 仍必须显式提供输入，保证 6.3 已有
+  契约不被悄悄改变。
+- 当前 `StepExecutionResult.next_step_id` 明确报告线性或分支选择结果。真正把非选中分支标记为
+  取消、激活选中 Step 的持久化协调需要配合后续 WorkflowService；本 Story 不伪造这一事务事实。
 
 ### 2. 当前 Version 在索引前已经存在
 

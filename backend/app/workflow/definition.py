@@ -1,6 +1,7 @@
 """代码型、不可变的 Workflow Definition 数据契约。"""
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from app.workflow.exceptions import WorkflowDefinitionTopologyError
 
@@ -19,14 +20,76 @@ def _require_runtime_type(value: object, field_name: str) -> None:
         raise WorkflowDefinitionTopologyError(f"{field_name} must be a runtime type.")
 
 
+class WorkflowInputSource(StrEnum):
+    """字段映射允许读取的两个受控数据来源。"""
+
+    RUN_INPUT = "run_input"
+    PREVIOUS_STEP_OUTPUT = "previous_step_output"
+
+
+@dataclass(frozen=True)
+class WorkflowInputBinding:
+    """把一个允许来源的顶层字段复制到 Node 输入的指定字段。"""
+
+    target_field: str
+    source: WorkflowInputSource
+    source_field: str
+
+    def __post_init__(self) -> None:
+        """拒绝空字段名与未声明来源，避免运行时读取任意对象路径。"""
+
+        _require_non_empty(self.target_field, "target_field")
+        _require_non_empty(self.source_field, "source_field")
+        if not isinstance(self.source, WorkflowInputSource):
+            raise WorkflowDefinitionTopologyError(
+                "source must be a WorkflowInputSource."
+            )
+
+
+@dataclass(frozen=True)
+class WorkflowBranchCase:
+    """一个固定 selector 值对应的唯一后继 Step。"""
+
+    expected_value: str
+    next_step_id: str
+
+    def __post_init__(self) -> None:
+        """在 Definition 创建时限制分支值与目标均为稳定非空标识。"""
+
+        _require_non_empty(self.expected_value, "expected_value")
+        _require_non_empty(self.next_step_id, "next_step_id")
+
+
+@dataclass(frozen=True)
+class WorkflowBranchDefinition:
+    """从 Node JSON 输出的一个字段按精确值选择固定后继 Step。"""
+
+    selector_field: str
+    cases: tuple[WorkflowBranchCase, ...]
+
+    def __post_init__(self) -> None:
+        """确保一个 selector 至少有一条且没有重复的受控分支值。"""
+
+        _require_non_empty(self.selector_field, "selector_field")
+        if not self.cases:
+            raise WorkflowDefinitionTopologyError("branch cases must not be empty.")
+        expected_values = tuple(case.expected_value for case in self.cases)
+        if len(set(expected_values)) != len(expected_values):
+            raise WorkflowDefinitionTopologyError(
+                "branch cases contain duplicate expected_value values."
+            )
+
+
 @dataclass(frozen=True)
 class WorkflowStepDefinition:
-    """Definition 中一个固定 Step 的标识、Node 选择、输入类型与线性后继。"""
+    """Definition 中一个固定 Step 的 Node、输入映射和固定后继规则。"""
 
     step_id: str
     node_key: str
     input_type: type[object]
     next_step_id: str | None = None
+    input_bindings: tuple[WorkflowInputBinding, ...] = ()
+    branch: WorkflowBranchDefinition | None = None
 
     def __post_init__(self) -> None:
         """在冻结 Step 创建时校验其最小静态契约。"""
@@ -36,6 +99,25 @@ class WorkflowStepDefinition:
         _require_runtime_type(self.input_type, "input_type")
         if self.next_step_id is not None:
             _require_non_empty(self.next_step_id, "next_step_id")
+        if self.next_step_id is not None and self.branch is not None:
+            raise WorkflowDefinitionTopologyError(
+                "Step cannot define both next_step_id and branch."
+            )
+        target_fields = tuple(binding.target_field for binding in self.input_bindings)
+        if len(set(target_fields)) != len(target_fields):
+            raise WorkflowDefinitionTopologyError(
+                "input_bindings contain duplicate target_field values."
+            )
+
+    @property
+    def outgoing_step_ids(self) -> tuple[str, ...]:
+        """返回线性后继或固定分支的全部候选后继，供 Registry 校验拓扑。"""
+
+        if self.branch is not None:
+            return tuple(case.next_step_id for case in self.branch.cases)
+        if self.next_step_id is not None:
+            return (self.next_step_id,)
+        return ()
 
 
 @dataclass(frozen=True)

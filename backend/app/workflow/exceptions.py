@@ -27,3 +27,11 @@ class WorkflowDefinitionTopologyError(WorkflowDefinitionError):
 
 class WorkflowDefinitionTypeMismatchError(WorkflowDefinitionError):
     """Step 与 Node 或相邻 Step 的输入输出类型契约不一致。"""
+
+
+class WorkflowInputMappingError(WorkflowDefinitionError):
+    """受控字段映射缺少来源字段或违反其静态契约。"""
+
+
+class WorkflowBranchResolutionError(WorkflowDefinitionError):
+    """Node 输出没有匹配到 Definition 明确声明的固定分支。"""

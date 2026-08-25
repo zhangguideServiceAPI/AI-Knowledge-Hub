@@ -3,7 +3,11 @@
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
-from app.workflow.definition import WorkflowDefinition, WorkflowStepDefinition
+from app.workflow.definition import (
+    WorkflowDefinition,
+    WorkflowInputSource,
+    WorkflowStepDefinition,
+)
 from app.workflow.exceptions import (
     DuplicateWorkflowDefinitionError,
     DuplicateWorkflowNodeError,
@@ -117,28 +121,39 @@ class WorkflowDefinitionRegistry:
                     f"{_type_name(node.input_type)}."
                 )
 
-            if step.next_step_id is None:
-                continue
-            next_step = steps_by_id.get(step.next_step_id)
-            if next_step is None:
-                raise WorkflowDefinitionTopologyError(
-                    f"Step {step.step_id} references unknown next_step_id: "
-                    f"{step.next_step_id}."
+            if step.input_bindings and step.input_type is not dict:
+                raise WorkflowDefinitionTypeMismatchError(
+                    f"Step {step.step_id} uses input_bindings but does not accept dict input."
                 )
-            incoming_edges[next_step.step_id] += 1
-            if incoming_edges[next_step.step_id] > 1:
+            if step.step_id == definition.start_step_id and any(
+                binding.source is WorkflowInputSource.PREVIOUS_STEP_OUTPUT
+                for binding in step.input_bindings
+            ):
                 raise WorkflowDefinitionTopologyError(
-                    "Linear Workflow Definition cannot have multiple predecessors for "
-                    f"step_id: {next_step.step_id}."
+                    "The start Step cannot read previous_step_output."
                 )
 
-            next_node = node_registry.get(next_step.node_key)
-            if node.output_type is not next_node.input_type:
-                raise WorkflowDefinitionTypeMismatchError(
-                    f"Node {step.node_key} output type {_type_name(node.output_type)} "
-                    f"does not match next Node {next_step.node_key} input type "
-                    f"{_type_name(next_node.input_type)}."
-                )
+            for next_step_id in step.outgoing_step_ids:
+                next_step = steps_by_id.get(next_step_id)
+                if next_step is None:
+                    raise WorkflowDefinitionTopologyError(
+                        f"Step {step.step_id} references unknown next_step_id: "
+                        f"{next_step_id}."
+                    )
+                incoming_edges[next_step.step_id] += 1
+                if incoming_edges[next_step.step_id] > 1:
+                    raise WorkflowDefinitionTopologyError(
+                        "Workflow Definition cannot have multiple predecessors for "
+                        f"step_id: {next_step.step_id}."
+                    )
+
+                next_node = node_registry.get(next_step.node_key)
+                if node.output_type is not next_node.input_type:
+                    raise WorkflowDefinitionTypeMismatchError(
+                        f"Node {step.node_key} output type {_type_name(node.output_type)} "
+                        f"does not match next Node {next_step.node_key} input type "
+                        f"{_type_name(next_node.input_type)}."
+                    )
 
         start_step = steps_by_id[definition.start_step_id]
         if definition.input_type is not start_step.input_type:
@@ -162,8 +177,8 @@ class WorkflowDefinitionRegistry:
                 return
 
             visiting_step_ids.add(step.step_id)
-            if step.next_step_id is not None:
-                visit(steps_by_id[step.next_step_id])
+            for next_step_id in step.outgoing_step_ids:
+                visit(steps_by_id[next_step_id])
             visiting_step_ids.remove(step.step_id)
             reachable_step_ids.add(step.step_id)
 

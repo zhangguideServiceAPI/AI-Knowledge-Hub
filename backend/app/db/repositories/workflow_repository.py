@@ -37,6 +37,22 @@ class WorkflowRepository:
         )
         return self._session.scalar(statement)
 
+    def get_latest_succeeded_step_before(
+        self, run_id: str, step_index: int
+    ) -> WorkflowStepRun | None:
+        """读取当前 Step 之前最后一个成功输出，作为受控映射的唯一上游来源。"""
+
+        statement = (
+            select(WorkflowStepRun)
+            .where(
+                WorkflowStepRun.workflow_run_id == run_id,
+                WorkflowStepRun.status == WorkflowStepRunStatus.SUCCEEDED.value,
+                WorkflowStepRun.step_index < step_index,
+            )
+            .order_by(WorkflowStepRun.step_index.desc())
+        )
+        return self._session.scalar(statement)
+
     def claim_step(self, step_id: str) -> bool:
         """原子认领 pending Step；并发调用中只有一个调用方得到 True。"""
 

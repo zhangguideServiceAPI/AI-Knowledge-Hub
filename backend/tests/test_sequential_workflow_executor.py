@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.models.workflow import WorkflowAttempt, WorkflowRun, WorkflowStepRun
-from app.workflow.definition import WorkflowDefinition, WorkflowStepDefinition
+from app.workflow.definition import (
+    WorkflowDefinition,
+    WorkflowInputBinding,
+    WorkflowInputSource,
+    WorkflowStepDefinition,
+)
 from app.workflow.executor import SequentialWorkflowExecutor
 from app.workflow.registry import WorkflowDefinitionRegistry, WorkflowNodeRegistry
 from app.workflow.state_machine import (
@@ -26,11 +31,13 @@ class FakeNode:
 
         self.error = error
         self.calls = 0
+        self.last_input: dict[str, object] | None = None
 
     def execute(self, node_input: dict[str, object]) -> dict[str, object]:
         """记录调用并返回安全 JSON 摘要，模拟真实 Node 的业务结果。"""
 
         self.calls += 1
+        self.last_input = node_input
         if self.error is not None:
             raise self.error
         return {"echo": node_input["value"]}
@@ -51,7 +58,9 @@ def _executor(session: Session, node: FakeNode) -> SequentialWorkflowExecutor:
     return SequentialWorkflowExecutor(session, definition_registry, node_registry)
 
 
-def _running_run(session: Session) -> WorkflowRun:
+def _running_run(
+    session: Session, *, run_input: dict[str, object] | None = None
+) -> WorkflowRun:
     """创建一个已进入 running 的 Run 与其唯一 pending Step。"""
 
     owner = User(email="executor@example.com", password_hash="hash")
@@ -61,7 +70,7 @@ def _running_run(session: Session) -> WorkflowRun:
         owner_id=owner.id,
         definition_key="test",
         definition_version=1,
-        run_input={},
+        run_input=run_input or {},
         status=WorkflowRunStatus.RUNNING.value,
     )
     session.add(run)
@@ -80,6 +89,7 @@ def test_executor_claims_executes_and_completes_last_step(session: Session) -> N
     assert result is not None
     assert result.run_status is WorkflowRunStatus.SUCCEEDED
     assert result.output_payload == {"echo": "ok"}
+    assert result.next_step_id is None
     assert node.calls == 1
 
 
@@ -104,3 +114,39 @@ def test_executor_persists_failure_after_node_error(session: Session) -> None:
     assert step.status == WorkflowStepRunStatus.FAILED.value
     assert attempt.status == WorkflowAttemptStatus.FAILED.value
     assert attempt.failure_code == "node_execution_failed"
+
+
+def test_executor_builds_declared_input_from_durable_run_snapshot(
+    session: Session,
+) -> None:
+    node = FakeNode()
+    definition = WorkflowDefinition(
+        key="test",
+        version=1,
+        input_type=dict,
+        start_step_id="step",
+        steps=(
+            WorkflowStepDefinition(
+                "step",
+                "fake",
+                dict,
+                input_bindings=(
+                    WorkflowInputBinding(
+                        "value", WorkflowInputSource.RUN_INPUT, "revision_id"
+                    ),
+                ),
+            ),
+        ),
+    )
+    node_registry = WorkflowNodeRegistry((node,))
+    executor = SequentialWorkflowExecutor(
+        session,
+        WorkflowDefinitionRegistry(node_registry, (definition,)),
+        node_registry,
+    )
+    run = _running_run(session, run_input={"revision_id": "r1"})
+
+    result = executor.execute_next(run.id)
+
+    assert result is not None
+    assert node.last_input == {"value": "r1"}
