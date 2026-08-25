@@ -5,3 +5,6 @@ from .knowledge_base import KnowledgeBase as KnowledgeBase
 from .knowledge_document import KnowledgeDocument as KnowledgeDocument
 from .usage import ChatUsage as ChatUsage
 from .user import User as User
+from .workflow import WorkflowAttempt as WorkflowAttempt
+from .workflow import WorkflowRun as WorkflowRun
+from .workflow import WorkflowStepRun as WorkflowStepRun
