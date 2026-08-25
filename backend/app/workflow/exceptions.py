@@ -55,3 +55,7 @@ class WorkflowRunNotRetryableError(ValueError):
 
 class WorkflowRetryExhaustedError(ValueError):
     """Step 已达到 Definition 声明的最大尝试次数。"""
+
+
+class WorkflowApprovalConflictError(ValueError):
+    """Revision 已被其他审批操作裁决或当前状态不允许该决定。"""

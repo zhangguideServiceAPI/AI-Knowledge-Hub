@@ -46,6 +46,81 @@ class WorkflowRepository:
         )
         return self._session.scalar(statement)
 
+    def get_step(self, *, run_id: str, step_id: str) -> WorkflowStepRun | None:
+        """按稳定 Definition Step ID 读取当前 Run 的单条 Step 事实。"""
+
+        statement = select(WorkflowStepRun).where(
+            WorkflowStepRun.workflow_run_id == run_id,
+            WorkflowStepRun.step_id == step_id,
+        )
+        return self._session.scalar(statement)
+
+    def create_run(self, run: WorkflowRun) -> WorkflowRun:
+        """加入新的 WorkflowRun 并 flush；调用方决定提交时机。"""
+
+        self._session.add(run)
+        self._session.flush()
+        self._session.refresh(run)
+        return run
+
+    def create_step(self, step: WorkflowStepRun) -> WorkflowStepRun:
+        """加入新的 StepRun 并 flush，供同一短事务的状态迁移引用。"""
+
+        self._session.add(step)
+        self._session.flush()
+        self._session.refresh(step)
+        return step
+
+    def approve_waiting_run_and_step(
+        self, *, run_id: str, step_id: str, output_payload: dict[str, object]
+    ) -> bool:
+        """原子完成 waiting 审批 Step，并将 waiting_approval Run 恢复为 running。"""
+
+        step_result = self._session.execute(
+            update(WorkflowStepRun)
+            .where(
+                WorkflowStepRun.id == step_id,
+                WorkflowStepRun.workflow_run_id == run_id,
+                WorkflowStepRun.status == WorkflowStepRunStatus.WAITING.value,
+            )
+            .values(
+                status=WorkflowStepRunStatus.SUCCEEDED.value,
+                output_payload=output_payload,
+                failure_code=None,
+            )
+        )
+        run_result = self._session.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.status == WorkflowRunStatus.WAITING_APPROVAL.value,
+            )
+            .values(status=WorkflowRunStatus.RUNNING.value, failure_code=None)
+        )
+        return step_result.rowcount == 1 and run_result.rowcount == 1
+
+    def cancel_waiting_run_and_step(self, *, run_id: str, step_id: str) -> bool:
+        """原子取消等待审批的 Run/Step，供拒绝与惰性过期共同使用。"""
+
+        step_result = self._session.execute(
+            update(WorkflowStepRun)
+            .where(
+                WorkflowStepRun.id == step_id,
+                WorkflowStepRun.workflow_run_id == run_id,
+                WorkflowStepRun.status == WorkflowStepRunStatus.WAITING.value,
+            )
+            .values(status=WorkflowStepRunStatus.CANCELLED.value, failure_code=None)
+        )
+        run_result = self._session.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.status == WorkflowRunStatus.WAITING_APPROVAL.value,
+            )
+            .values(status=WorkflowRunStatus.CANCELLED.value, failure_code=None)
+        )
+        return step_result.rowcount == 1 and run_result.rowcount == 1
+
     def get_next_pending_step(self, run_id: str) -> WorkflowStepRun | None:
         """读取当前 Run 中最靠前的 pending Step，供顺序执行器认领。"""
 

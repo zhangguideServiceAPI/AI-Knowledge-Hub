@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.5 Retry, Resume & Idempotency
+Current Story: Story 6.6 Human Approval
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Continue from retry, resume and idempotent recovery into human approval
+  - Continue from human approval into protected Workflow APIs
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -208,9 +208,10 @@ Completed:
   - SequentialWorkflowExecutor, conditional Step claim and durable Attempt / StepRun / Run closure
   - Controlled input mapping, fixed branch resolution and Executor use of durable input snapshots
   - Retryable Node failure classification, stable Step idempotency key and conditional resume to A2
+  - KnowledgeRevision business approval, waiting Step, approved/rejected/expired conditional closure
 
 Not Started:
-  - Persisted branch transition Service, approval and API
+  - Workflow API and knowledge indexing vertical slice
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。

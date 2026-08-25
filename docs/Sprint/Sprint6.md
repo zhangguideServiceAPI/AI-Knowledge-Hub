@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.5 Retry, Resume & Idempotency
-Current Step: 已完成可重试失败分类、Step 级稳定幂等键与失败 Run 的条件恢复；下一步进入人工审批暂停与继续
+Current Story: Story 6.6 Human Approval
+Current Step: 已完成 Revision 业务审批、等待/批准/拒绝/惰性过期；下一步提供受保护的 Workflow API
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -322,6 +322,37 @@ A1 running --暂时 Node 故障--> A1 failed (node_retryable)
 - 成功 Run 不会再执行 Node；`waiting_approval`、`cancelled`、永久失败与没有失败 Step 的 Run 不能
   使用普通 resume。Qdrant 成功但 MySQL 收口前崩溃的专门 reconciliation 仍需在知识索引 Node 中由
   `KnowledgeService` 依据版本技术状态处理，绝不凭向量点猜测完成。
+
+### 1.6 Story 6.6 已实现：人工审批与惰性过期
+
+`KnowledgeRevision` 是新建的业务审批事实，独立保存 `submitted / approved / rejected / expired`、
+过期时间、审批人和绑定的 Run。它绝不复用 `DocumentVersion.status`：审批拒绝不会把已准备的
+Version 伪装成技术失败，批准也不会在没有执行索引前伪装成 `indexed`。
+
+```text
+submit_revision_for_approval()
+  Revision = submitted
+  Run = waiting_approval
+  S1(wait_for_approval) = waiting，尚无 Attempt
+
+approve_revision()
+  Revision -> approved
+  S1 -> succeeded {decision: approved}
+  Run -> running，创建 approved 分支的 S2 = pending
+
+reject / lazy expiry
+  Revision -> rejected / expired
+  S1 与 Run -> cancelled，不创建索引 Step
+```
+
+- 提交只允许当前所有者的 `DocumentVersion = pending`；Run 保存 revision/document/version ID 快照，
+  恢复时不按“最新版本”猜测目标。
+- 批准、拒绝与过期都先用 `KnowledgeRevision.status = submitted` 的条件 Update 取得裁决权，再在
+  同一个短事务内迁移等待 Step 与 Run。重复同一决定重读后返回幂等结果；不同决定明确冲突。
+- `expires_at` 不由后台线程自动扫描。`reconcile_expired_revision()` 在读取/审批流程显式调用时才把
+  已过期 submitted Revision 取消，保持当前 Sprint 没有 Scheduler 的边界。
+- 当前项目尚无审批角色模型，因此首版只允许 Revision 所有者处理；Story 6.7 的 API 保持此权限
+  边界，未来企业角色/组织授权必须在 Service 层替换，而不能让 Router 信任 approver ID。
 
 ### 2. 当前 Version 在索引前已经存在
 
