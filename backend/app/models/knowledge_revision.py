@@ -17,6 +17,7 @@ class KnowledgeRevisionStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     EXPIRED = "expired"
+    WITHDRAWN = "withdrawn"
 
 
 class KnowledgeRevision(Base):
@@ -32,7 +33,7 @@ class KnowledgeRevision(Base):
             "expires_at",
         ),
         CheckConstraint(
-            "status IN ('submitted', 'approved', 'rejected', 'expired')",
+            "status IN ('submitted', 'approved', 'rejected', 'expired', 'withdrawn')",
             name="ck_knowledge_revisions_status",
         ),
     )

@@ -11,8 +11,9 @@ Completed: Sprint 2 Session & Identity
 Completed: Sprint 3 Storage & Resource Management
 Completed: Sprint 4 AI Gateway, Prompt Center, Streaming & Usage
 Completed: Sprint 5 Knowledge / RAG first-version closeout
-Current:   Sprint 6 Workflow, Story 6.8 RAG Vertical Slice
-Next:      Sprint 6.9 Lifecycle & Review
+Completed: Sprint 6 Workflow
+Current:   Sprint 7 Agent Runtime preparation
+Next:      Sprint 7 Agent Runtime
 ```
 
 当前学习与实施总控文档：[Sprint 6 Workflow](Sprint/Sprint6.md)。
@@ -107,7 +108,7 @@ Next:      Sprint 6.9 Lifecycle & Review
 - [Sprint 3：Storage & Resource Management（已完成）](Sprint/Sprint3.md)
 - [Sprint 4：AI Gateway（已完成）](Sprint/Sprint4.md)
 - [Sprint 5：Knowledge / RAG（已完成）](Sprint/Sprint5.md)
-- [Sprint 6：Workflow（进行中）](Sprint/Sprint6.md)
+- [Sprint 6：Workflow（已完成）](Sprint/Sprint6.md)
 - [Sprint 长期路线](Sprint/Sprint长期路线.md)
 
 历史 Sprint 是阶段交付证据。即使其中保留了当时的“候选”或“下一步”表述，也不应改写为新 Sprint 的当前计划；当前状态以本页、项目宪法和当前 Sprint 为准。

@@ -1513,6 +1513,36 @@ Provider 错误率、Token、延迟和用户反馈。评估结果必须与版本
 - LangChain、LangGraph、n8n 和自研状态机如何取舍？
 - Workflow 如何保证幂等和可恢复？
 
+### Sprint 6 完成证据与口述题
+
+#### 条件 UPDATE 的 `rowcount=0` 是数据库写失败吗？
+
+不是。SQL 执行或 commit 抛异常才是数据库/连接失败；`rowcount=0` 表示 SQL 正常完成但旧状态条件
+不再匹配。Service 必须重读：目标已经完成则幂等成功，已被相反决定则 409，不存在或越权则 404。
+
+**项目证据**：`WorkflowRepository`、`KnowledgeRevisionRepository`、Story 6.5/6.6 测试。
+
+**掌握状态**：`理解并可结合 approve/resume 举例`。
+
+#### 为什么 Index Node 只能调用 KnowledgeService，不能直连 Qdrant？
+
+Workflow 只负责 Step/Attempt 的持久化编排。KnowledgeService 已拥有 Version 技术状态、Qdrant
+补偿、`cleanup_required` 和 active Version 提升；Node 直连会复制一致性逻辑，且容易把审批状态与
+索引状态混在一起。
+
+**项目证据**：`IndexAndActivateVersionNode`、ADR-0040、`test_knowledge_workflow_node.py`。
+
+**掌握状态**：`理解并可画出两段短事务边界`。
+
+#### 为什么不能把正在索引的 Run 直接标成 cancelled？
+
+数据库 UPDATE 无法撤销已发出的 Embedding/Qdrant 网络请求。那会形成“数据库显示取消、外部仍写入”的
+不一致。当前只允许 waiting_approval 的 Revision 撤回；将来由 Worker 在 Node 安全边界协作取消和补偿。
+
+**项目证据**：`withdraw_revision()`、ADR-0041、Story 6.9 测试。
+
+**掌握状态**：`理解；需在白板演练中说明未来 Worker 的安全边界`。
+
 ## Sprint 7: Agent Runtime
 
 重点问题范围：

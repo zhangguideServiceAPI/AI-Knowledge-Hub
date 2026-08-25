@@ -6,9 +6,9 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 足够小的真实业务场景作为贯穿案例。
 
 ```text
-Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.8 RAG Vertical Slice
-Current Step: 已接通批准后的异步索引 Node、短事务 Executor 和恢复语义；下一步进行生命周期复盘
+Current Sprint: Sprint 6 Workflow (completed)
+Current Story: Story 6.9 Lifecycle & Review (completed)
+Current Step: 已完成生命周期复盘、审批前撤回、故障验证与 Sprint 收口
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -398,6 +398,29 @@ approve_revision()
 - 端点一次只执行一个 ready Step，便于当前同步 HTTP 学习与审计；它不是后台 Worker。Sprint 10 才会把
   同一个 Executor 交给队列/Worker 调度，且不会改变 Node 到 Service 的边界。
 
+### 1.9 Story 6.9 已实现：生命周期收口与 Review
+
+首版取消不伪装成“已经中断任意运行中的网络操作”。`withdraw_revision()` 只允许作者撤回仍为
+`submitted`、Workflow 仍在 `waiting_approval` 的 Revision：它通过 Revision 和等待 Step/Run 的条件
+更新，把业务事实写为 `withdrawn`、执行事实写为 `cancelled`，且不创建 Attempt、不改变
+`DocumentVersion.pending`。重复撤回是幂等成功；approve/reject/expire 后撤回则是 409 冲突。
+
+```text
+submitted + waiting_approval
+  -- withdraw --> Revision withdrawn + Run/Step cancelled
+
+approved + index Step running
+  -- withdraw --> 不允许：不能杀掉正在进行的 Embedding/Qdrant I/O
+```
+
+- 新增 `POST /workflows/revisions/{revision_id}/withdraw`，身份仍只来自认证 Principal；Router 不接收
+  客户端状态、撤回人或 Version 技术状态。
+- `a83d6f4b2e19` 迁移把 `withdrawn` 纳入 Revision 的业务状态约束；它不扩展 DocumentVersion 的
+  `pending/processing/indexed/failed/cleanup_required` 技术生命周期。
+- 本 Sprint 的回归证据覆盖条件认领、Definition 拓扑、受控映射/分支、retry/resume、审批竞争/过期、
+  owner-hidden API、异步索引委托、非 indexed 技术终态，以及审批前撤回。完整 Review 见
+  [Sprint 6 Review](Sprint6-review.md)。
+
 ### 2. 当前 Version 在索引前已经存在
 
 现有 Sprint 5 路径的顺序为：
@@ -748,12 +771,11 @@ stateDiagram-v2
     pending --> running
     running --> waiting_approval
     waiting_approval --> running: approve
-    waiting_approval --> cancelled: reject / lazy expiry check
+    waiting_approval --> cancelled: reject / lazy expiry / withdraw
     running --> succeeded
     running --> failed
     failed --> running: explicit resume
     pending --> cancelled
-    running --> cancelled: cooperative cancel
 ```
 
 - 状态更新使用条件更新或乐观锁，禁止“先查再随意覆盖”。
@@ -763,6 +785,8 @@ stateDiagram-v2
 - 大结果进入 Artifact/File Resource，Run 表只保留有限摘要和引用。
 - Sprint 6 没有后台 Scheduler；`expires_at` 只在查询、审批或管理员手工 reconciliation 时
   转为过期终态，Sprint 10 再加入自动扫描。
+- 已进入外部 I/O 的 Step 不提供“立即取消”；将来的 Worker 必须在 Node 安全边界实现协作取消与
+  补偿，而不能仅靠数据库状态覆盖。
 
 ## 测试与验证矩阵
 

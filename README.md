@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 6 - Workflow，正在完成 Story 6.8 RAG Vertical Slice**
+当前阶段：**Sprint 6 - Workflow 已完成，下一步为 Sprint 7 Agent Runtime**
 
 已经完成：
 
@@ -58,7 +58,7 @@ WorkflowRun、WorkflowStepRun、WorkflowAttempt 的领域模型、状态机、Mi
 代码型 Definition、Node Protocol、Registry、启动期校验、最小顺序 Executor，以及受控字段映射和
 固定条件分支、失败 Run 恢复、Step 级幂等键、人工审批 Revision 与认证 Workflow API；已实现审批后的
 异步知识索引 Node，并保持 Node 只能委托 KnowledgeService 完成 Embedding、Qdrant 与 active Version
-提升；后台 Worker 仍属于后续 Sprint。
+提升；也已实现审批前作者撤回。后台 Worker、运行中协作取消与自动过期扫描仍属于后续 Sprint。
 
 ## 技术栈
 

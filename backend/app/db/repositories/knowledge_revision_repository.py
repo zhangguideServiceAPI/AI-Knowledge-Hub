@@ -40,12 +40,13 @@ class KnowledgeRevisionRepository:
         status: KnowledgeRevisionStatus,
         decided_by: int | None,
     ) -> bool:
-        """仅将 submitted Revision 原子裁决为 approved、rejected 或 expired。"""
+        """仅将 submitted Revision 原子裁决为审批终态或作者撤回。"""
 
         if status not in {
             KnowledgeRevisionStatus.APPROVED,
             KnowledgeRevisionStatus.REJECTED,
             KnowledgeRevisionStatus.EXPIRED,
+            KnowledgeRevisionStatus.WITHDRAWN,
         }:
             raise ValueError("Revision decision must be a terminal approval status.")
         result = self._session.execute(

@@ -161,3 +161,22 @@ def reject_knowledge_revision(
     return WorkflowRevisionSubmissionResponse(
         revision=_revision_response(result.revision), run=_run_response(result.run)
     )
+
+
+@router.post(
+    "/revisions/{revision_id}/withdraw",
+    response_model=WorkflowRevisionSubmissionResponse,
+)
+def withdraw_knowledge_revision(
+    revision_id: str,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
+) -> WorkflowRevisionSubmissionResponse:
+    """作者在索引前撤回 submitted Revision；运行中的索引不通过此接口强行中断。"""
+
+    result = workflow_service.withdraw_revision(
+        owner_id=current_user.id, revision_id=revision_id
+    )
+    return WorkflowRevisionSubmissionResponse(
+        revision=_revision_response(result.revision), run=_run_response(result.run)
+    )

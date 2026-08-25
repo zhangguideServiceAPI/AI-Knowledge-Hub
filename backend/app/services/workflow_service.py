@@ -161,6 +161,18 @@ class WorkflowService:
             decided_by=approver_id,
         )
 
+    def withdraw_revision(
+        self, *, owner_id: int, revision_id: str
+    ) -> ApprovalDecisionResult:
+        """允许作者仅在等待审批时撤回 Revision，取消 Run 但不触碰 Version 技术状态。"""
+
+        return self._decide_revision(
+            owner_id=owner_id,
+            revision_id=revision_id,
+            decision=KnowledgeRevisionStatus.WITHDRAWN,
+            decided_by=owner_id,
+        )
+
     def reconcile_expired_revision(
         self, *, owner_id: int, revision_id: str, now: datetime
     ) -> ApprovalDecisionResult:

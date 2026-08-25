@@ -184,6 +184,29 @@ def test_reject_cancels_workflow_but_keeps_indexing_fact_pending(
     )
 
 
+def test_owner_can_withdraw_before_indexing_without_creating_attempt(
+    session: Session,
+) -> None:
+    """作者撤回是审批业务终态，不会把尚未执行的 Version 标成技术失败。"""
+
+    service, owner, version, revision_id = _submit(session)
+
+    result = service.withdraw_revision(owner_id=owner.id, revision_id=revision_id)
+
+    assert result.applied is True
+    assert result.revision.status == KnowledgeRevisionStatus.WITHDRAWN.value
+    assert result.run.status == WorkflowRunStatus.CANCELLED.value
+    assert (
+        session.get(DocumentVersion, version.id).status
+        == DocumentVersionStatus.PENDING.value
+    )
+    assert session.scalars(select(WorkflowAttempt)).all() == []
+    assert (
+        service.withdraw_revision(owner_id=owner.id, revision_id=revision_id).applied
+        is False
+    )
+
+
 def test_reconcile_expiry_lazily_cancels_submitted_revision(session: Session) -> None:
     service, owner, version = _service(session)
     submitted = service.submit_revision_for_approval(

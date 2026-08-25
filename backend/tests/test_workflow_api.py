@@ -8,9 +8,10 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_current_user, get_workflow_service
 from app.main import app
+from app.models.knowledge_revision import KnowledgeRevision
 from app.models.workflow import WorkflowRun
 from app.schemas.user import UserResponse
-from app.services.workflow_service import WorkflowService
+from app.services.workflow_service import ApprovalDecisionResult, WorkflowService
 from app.workflow.exceptions import WorkflowRunNotFoundError
 from app.workflow.state_machine import WorkflowRunStatus
 
@@ -41,6 +42,25 @@ def _run() -> WorkflowRun:
         definition_version=1,
         run_input={},
         status=WorkflowRunStatus.WAITING_APPROVAL.value,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _revision(run: WorkflowRun) -> KnowledgeRevision:
+    """构造与 Run 关联的 Revision 摘要，供撤回 Router 响应转换。"""
+
+    now = datetime.now()
+    return KnowledgeRevision(
+        id=str(uuid4()),
+        owner_id=11,
+        document_id=str(uuid4()),
+        document_version_id=str(uuid4()),
+        workflow_run_id=run.id,
+        status="withdrawn",
+        expires_at=now,
+        decided_by=11,
+        decided_at=now,
         created_at=now,
         updated_at=now,
     )
@@ -80,3 +100,29 @@ def test_workflow_not_found_is_hidden_as_404() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Workflow resource not found."}
+
+
+def test_withdraw_revision_passes_authenticated_owner_to_service() -> None:
+    """撤回接口只把认证用户传给 Service，不能伪造撤回人或状态。"""
+
+    workflow_service = Mock(spec=WorkflowService)
+    run = _run()
+    revision = _revision(run)
+    workflow_service.withdraw_revision.return_value = ApprovalDecisionResult(
+        revision=revision, run=run, applied=True
+    )
+    app.dependency_overrides[get_current_user] = _current_user
+    app.dependency_overrides[get_workflow_service] = lambda: workflow_service
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/workflows/revisions/{revision.id}/withdraw")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_workflow_service, None)
+
+    assert response.status_code == 200
+    assert response.json()["revision"]["status"] == "withdrawn"
+    workflow_service.withdraw_revision.assert_called_once_with(
+        owner_id=11, revision_id=revision.id
+    )

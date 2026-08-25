@@ -168,11 +168,10 @@ AI 不得：
 ## 8. Current Project State
 
 ```text
-Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.8 RAG Vertical Slice
+Current Sprint: Sprint 6 Workflow (completed)
+Current Story: Story 6.9 Lifecycle & Review (completed)
 Current Goal:
-  - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Validate the approved revision path through KnowledgeService indexing and RAG visibility
+  - Prepare Sprint 7 Agent Runtime without weakening Sprint 6 Workflow boundaries
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -210,9 +209,11 @@ Completed:
   - Retryable Node failure classification, stable Step idempotency key and conditional resume to A2
   - KnowledgeRevision business approval, waiting Step, approved/rejected/expired conditional closure
   - Authenticated Workflow APIs, owner-hidden lookup and stable 404/409 error mapping
+  - KnowledgeService-only async indexing Node, active Version promotion boundary and RAG visibility path
+  - Submitted Revision withdrawal, lifecycle review, ADR-0033 through ADR-0041 and Sprint 6 verification
 
 Not Started:
-  - Knowledge indexing vertical slice and lifecycle review
+  - Sprint 7 Agent Runtime
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。
