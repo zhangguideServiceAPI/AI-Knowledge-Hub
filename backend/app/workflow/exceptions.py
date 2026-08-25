@@ -35,3 +35,23 @@ class WorkflowInputMappingError(WorkflowDefinitionError):
 
 class WorkflowBranchResolutionError(WorkflowDefinitionError):
     """Node 输出没有匹配到 Definition 明确声明的固定分支。"""
+
+
+class WorkflowNodeExecutionError(RuntimeError):
+    """Node 已被执行器认领后发生的稳定业务执行失败基类。"""
+
+
+class WorkflowRetryableNodeError(WorkflowNodeExecutionError):
+    """Node 明确声明可由同一逻辑 Step 安全重试的暂时性故障。"""
+
+
+class WorkflowRunNotFoundError(LookupError):
+    """当前所有者找不到请求的 WorkflowRun。"""
+
+
+class WorkflowRunNotRetryableError(ValueError):
+    """Run 的当前终态或失败类别不允许普通重试。"""
+
+
+class WorkflowRetryExhaustedError(ValueError):
+    """Step 已达到 Definition 声明的最大尝试次数。"""

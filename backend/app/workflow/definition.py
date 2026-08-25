@@ -90,6 +90,7 @@ class WorkflowStepDefinition:
     next_step_id: str | None = None
     input_bindings: tuple[WorkflowInputBinding, ...] = ()
     branch: WorkflowBranchDefinition | None = None
+    max_attempts: int = 3
 
     def __post_init__(self) -> None:
         """在冻结 Step 创建时校验其最小静态契约。"""
@@ -108,6 +109,8 @@ class WorkflowStepDefinition:
             raise WorkflowDefinitionTopologyError(
                 "input_bindings contain duplicate target_field values."
             )
+        if self.max_attempts <= 0:
+            raise WorkflowDefinitionTopologyError("max_attempts must be positive.")
 
     @property
     def outgoing_step_ids(self) -> tuple[str, ...]:

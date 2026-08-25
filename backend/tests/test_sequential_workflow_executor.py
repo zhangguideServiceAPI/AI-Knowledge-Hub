@@ -11,6 +11,7 @@ from app.workflow.definition import (
     WorkflowStepDefinition,
 )
 from app.workflow.executor import SequentialWorkflowExecutor
+from app.workflow.node import WorkflowNodeExecutionContext
 from app.workflow.registry import WorkflowDefinitionRegistry, WorkflowNodeRegistry
 from app.workflow.state_machine import (
     WorkflowAttemptStatus,
@@ -33,9 +34,14 @@ class FakeNode:
         self.calls = 0
         self.last_input: dict[str, object] | None = None
 
-    def execute(self, node_input: dict[str, object]) -> dict[str, object]:
+    def execute(
+        self,
+        node_input: dict[str, object],
+        context: WorkflowNodeExecutionContext,
+    ) -> dict[str, object]:
         """记录调用并返回安全 JSON 摘要，模拟真实 Node 的业务结果。"""
 
+        del context
         self.calls += 1
         self.last_input = node_input
         if self.error is not None:

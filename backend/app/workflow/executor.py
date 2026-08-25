@@ -12,7 +12,9 @@ from app.workflow.definition import WorkflowStepDefinition
 from app.workflow.exceptions import (
     WorkflowDefinitionError,
     WorkflowDefinitionTopologyError,
+    WorkflowRetryableNodeError,
 )
+from app.workflow.node import WorkflowNodeExecutionContext
 from app.workflow.registry import WorkflowDefinitionRegistry, WorkflowNodeRegistry
 from app.workflow.routing import WorkflowRouteResolver
 from app.workflow.state_machine import WorkflowRunStatus
@@ -20,6 +22,7 @@ from app.workflow.state_machine import WorkflowRunStatus
 logger = logging.getLogger(__name__)
 
 _NODE_EXECUTION_FAILURE = "node_execution_failed"
+_NODE_RETRYABLE_FAILURE = "node_retryable"
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,16 @@ class SequentialWorkflowExecutor:
             )
 
         try:
-            output = node.execute(resolved_input)
+            output = node.execute(
+                resolved_input,
+                WorkflowNodeExecutionContext(
+                    workflow_run_id=run.id,
+                    workflow_step_run_id=step.id,
+                    workflow_attempt_id=attempt.id,
+                    # StepRun ID 在 A1、A2… 中保持不变，外部 Service 可安全复用它去重。
+                    idempotency_key=step.id,
+                ),
+            )
             if not isinstance(output, node.output_type) or not isinstance(output, dict):
                 raise WorkflowDefinitionTopologyError(
                     f"Node {definition_step.node_key} must return its declared JSON object output."
@@ -88,8 +100,19 @@ class SequentialWorkflowExecutor:
             next_step_id = self._route_resolver.select_next_step_id(
                 definition_step, node_output=output
             )
+        except WorkflowRetryableNodeError:
+            self._fail_claimed_step(
+                run_id, step.id, attempt.id, _NODE_RETRYABLE_FAILURE
+            )
+            logger.warning(
+                "workflow_node_retryable_failure",
+                extra={"run_id": run_id, "step_id": step.id},
+            )
+            raise
         except Exception:
-            self._fail_claimed_step(run_id, step.id, attempt.id)
+            self._fail_claimed_step(
+                run_id, step.id, attempt.id, _NODE_EXECUTION_FAILURE
+            )
             logger.exception(
                 "workflow_node_execution_failed",
                 extra={"run_id": run_id, "step_id": step.id},
@@ -184,14 +207,20 @@ class SequentialWorkflowExecutor:
             next_step_id,
         )
 
-    def _fail_claimed_step(self, run_id: str, step_id: str, attempt_id: str) -> None:
+    def _fail_claimed_step(
+        self,
+        run_id: str,
+        step_id: str,
+        attempt_id: str,
+        failure_code: str = _NODE_EXECUTION_FAILURE,
+    ) -> None:
         """短事务二失败路径：写入稳定失败码并提交，保留 Attempt 审计事实。"""
 
         if not self._repository.fail_attempt_step_and_run(
             attempt_id=attempt_id,
             step_id=step_id,
             run_id=run_id,
-            failure_code=_NODE_EXECUTION_FAILURE,
+            failure_code=failure_code,
         ):
             self._session.rollback()
             raise WorkflowDefinitionTopologyError(

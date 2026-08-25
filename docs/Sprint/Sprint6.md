@@ -7,12 +7,12 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.4 Mapping & Branching
-Current Step: 已完成受控字段映射、固定条件分支及其 Executor 输入接入；下一步进入 Retry、Resume 与幂等恢复
+Current Story: Story 6.5 Retry, Resume & Idempotency
+Current Step: 已完成可重试失败分类、Step 级稳定幂等键与失败 Run 的条件恢复；下一步进入人工审批暂停与继续
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
-Workflow 能力尚未实现；Sprint 6 仍严格按照“一个 Story、一个小步骤”推进。
+Workflow 能力正在逐步实现；Sprint 6 仍严格按照“一个 Story、一个小步骤”推进。
 
 ## 业务学习方式
 
@@ -297,6 +297,31 @@ WorkflowBranchDefinition(selector_field="decision")
   契约不被悄悄改变。
 - 当前 `StepExecutionResult.next_step_id` 明确报告线性或分支选择结果。真正把非选中分支标记为
   取消、激活选中 Step 的持久化协调需要配合后续 WorkflowService；本 Story 不伪造这一事务事实。
+
+### 1.5 Story 6.5 已实现：Retry、Resume 与幂等边界
+
+一次业务 Step 的外部副作用不能因为 A1 失败、进程重试或网络响应丢失而变成两次。当前实现把
+`WorkflowStepRun.id` 作为跨 Attempt 不变的 `idempotency_key`，由 Executor 放进
+`WorkflowNodeExecutionContext`；A1、A2 共享这个 key，但各自仍有独立 Attempt 审计记录。
+
+```text
+A1 running --暂时 Node 故障--> A1 failed (node_retryable)
+  -> Run failed
+  -> WorkflowService.resume_failed_run()
+  -> 条件 UPDATE: Run failed -> running, Step failed -> pending
+  -> Executor 认领并创建 A2 running（同一 idempotency_key）
+```
+
+- Node 只有显式抛出 `WorkflowRetryableNodeError` 才写入 `node_retryable`；普通 Node 异常仍为
+  `node_execution_failed`，不允许因为“重试也许有用”而重复未知副作用。
+- `WorkflowStepDefinition.max_attempts` 是 Definition 的固定策略（默认 3）。`WorkflowService`
+  会按历史 Attempt 数拒绝超限重试，不能让客户端自行指定次数。
+- `resume_failed_run(owner_id, run_id)` 只处理当前所有者的 `failed + node_retryable` Run；它在同一
+  短事务内条件更新 Run 与最早失败 Step。`rowcount == 0` 后重读：若别人已恢复或 Run 已成功，返回
+  幂等的“不重放”结果；其余状态明确拒绝。
+- 成功 Run 不会再执行 Node；`waiting_approval`、`cancelled`、永久失败与没有失败 Step 的 Run 不能
+  使用普通 resume。Qdrant 成功但 MySQL 收口前崩溃的专门 reconciliation 仍需在知识索引 Node 中由
+  `KnowledgeService` 依据版本技术状态处理，绝不凭向量点猜测完成。
 
 ### 2. 当前 Version 在索引前已经存在
 

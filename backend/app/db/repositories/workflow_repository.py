@@ -24,6 +24,28 @@ class WorkflowRepository:
 
         return self._session.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id))
 
+    def get_owned_run(self, *, run_id: str, owner_id: int) -> WorkflowRun | None:
+        """按 Run 与所有者读取长期事实，避免上层先得到越权的 Workflow 状态。"""
+
+        statement = select(WorkflowRun).where(
+            WorkflowRun.id == run_id,
+            WorkflowRun.owner_id == owner_id,
+        )
+        return self._session.scalar(statement)
+
+    def get_failed_step(self, run_id: str) -> WorkflowStepRun | None:
+        """读取最早失败 Step，普通 resume 只允许从这个已知失败边界继续。"""
+
+        statement = (
+            select(WorkflowStepRun)
+            .where(
+                WorkflowStepRun.workflow_run_id == run_id,
+                WorkflowStepRun.status == WorkflowStepRunStatus.FAILED.value,
+            )
+            .order_by(WorkflowStepRun.step_index)
+        )
+        return self._session.scalar(statement)
+
     def get_next_pending_step(self, run_id: str) -> WorkflowStepRun | None:
         """读取当前 Run 中最靠前的 pending Step，供顺序执行器认领。"""
 
@@ -103,6 +125,7 @@ class WorkflowRepository:
                 status=WorkflowAttemptStatus.SUCCEEDED.value,
                 output_payload=output_payload,
                 failure_code=None,
+                finished_at=func.now(),
             )
         )
         step_result = self._session.execute(
@@ -136,7 +159,9 @@ class WorkflowRepository:
                 WorkflowAttempt.status == WorkflowAttemptStatus.RUNNING.value,
             )
             .values(
-                status=WorkflowAttemptStatus.FAILED.value, failure_code=failure_code
+                status=WorkflowAttemptStatus.FAILED.value,
+                failure_code=failure_code,
+                finished_at=func.now(),
             )
         )
         step_result = self._session.execute(
@@ -162,6 +187,28 @@ class WorkflowRepository:
             and step_result.rowcount == 1
             and run_result.rowcount == 1
         )
+
+    def requeue_failed_run_and_step(self, *, run_id: str, step_id: str) -> bool:
+        """原子重开可重试失败的 Run/Step；Attempt 历史保留，下一次会创建 A2。"""
+
+        run_result = self._session.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.status == WorkflowRunStatus.FAILED.value,
+            )
+            .values(status=WorkflowRunStatus.RUNNING.value, failure_code=None)
+        )
+        step_result = self._session.execute(
+            update(WorkflowStepRun)
+            .where(
+                WorkflowStepRun.id == step_id,
+                WorkflowStepRun.workflow_run_id == run_id,
+                WorkflowStepRun.status == WorkflowStepRunStatus.FAILED.value,
+            )
+            .values(status=WorkflowStepRunStatus.PENDING.value, failure_code=None)
+        )
+        return run_result.rowcount == 1 and step_result.rowcount == 1
 
     def complete_run_if_no_pending_steps(self, run_id: str) -> bool:
         """仅在没有 pending Step 时将 running Run 收口为 succeeded。"""
