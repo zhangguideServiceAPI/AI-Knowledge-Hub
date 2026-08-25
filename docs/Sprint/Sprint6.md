@@ -8,7 +8,7 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 ```text
 Current Sprint: Sprint 6 Workflow
 Current Story: Story 6.0 Business Case & System Map
-Current Step: 先讲清业务目标、参与者、业务状态、Service 入口和失败分支，不直接写代码
+Current Step: Story 6.0 学习记录已整理；在进入 Story 6.1 的 Model / Migration 设计前，继续以一个小步骤复核已确定的边界，不直接写代码
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -159,6 +159,358 @@ WorkflowService.reject_run(...)
 
 `owner_id` 来自认证上下文；Definition Key 和业务输入来自受校验的 API；状态、已完成步骤和
 审批人不得由客户端伪造。
+
+## Story 6.0 学习记录：知识修订审批与索引闭环
+
+本节记录当前贯穿案例已经确认的设计结论。它是进入 Story 6.1 前的学习基线，**不是已实现的
+生产代码或数据库 Schema**；现有 Sprint 5 上传入口仍会在准备 Version 后直接索引。
+
+### 1. 先分清四类事实，不能混用状态
+
+| 事实来源 | 回答的问题 | 典型状态 / 字段 |
+| --- | --- | --- |
+| Document / KnowledgeBase 审批策略 | 这类内容是否需要人工审批 | `REQUIRE_APPROVAL` / `AUTO_APPROVE_AND_INDEX` |
+| KnowledgeRevision（未来业务对象） | 这次修订是否获准进入索引 | `pending` / `approved` / `rejected` / `not_required` |
+| WorkflowRun / StepRun / Attempt（未来执行对象） | 这条流程、某一步、某次尝试走到哪里 | `running` / `waiting_approval` / `succeeded` / `failed` / `cancelled` |
+| DocumentVersion（已实现技术对象） | 这版内容的向量索引是否可靠、是否可被 RAG 使用 | `pending` / `processing` / `indexed` / `failed` / `cleanup_required` |
+
+因此：
+
+```text
+业务 rejected != Workflow failed != DocumentVersion failed
+
+approved != 已被员工 RAG 使用
+```
+
+`rejected` 是人作出的正常业务决定；`failed` 是技术执行失败。员工是否能使用某一 Version，
+仍由 `DocumentVersion.status == indexed` 且 `Document.active_version_id` 指向该 Version 决定。
+
+### 2. 当前 Version 在索引前已经存在
+
+现有 Sprint 5 路径的顺序为：
+
+```text
+FileService.upload
+  -> KnowledgeDocument
+  -> Parse + Chunk
+  -> 原子提交 DocumentVersion V1 + 全部 DocumentChunk
+  -> V1 = pending
+  -> Embedding + Qdrant
+  -> V1 = indexed + 可能提升 active_version_id
+```
+
+`DocumentVersion` 与全部 `DocumentChunk` 处于同一个 MySQL 事务：Chunker 先在内存中生成
+完整 `ChunkDraft[]`，随后才写入 Version 和所有 Chunk 并一次 `commit`。切分失败时尚未写
+MySQL；任一 SQL 写入或提交失败时回滚，不会留下“只有半批 Chunk”的已提交 Version。
+
+所以 WorkflowRun 创建时可以安全冻结：
+
+```text
+revision_id
+document_id
+document_version_id
+processing_fingerprint
+approval_mode_snapshot
+```
+
+Run 必须保存 `document_version_id`，而不是在恢复时只按 `document_id` 读取“当前最新 Version”；
+否则 V1 的审批可能错误索引后来提交的 V2。
+
+### 3. 免审批与需审批的两条入口
+
+“是否需要审批”是 Document 所属业务配置的策略，不能由客户端请求体伪造，也不能从
+`DocumentVersion.status` 推断。若整座 KnowledgeBase 都使用同一规则，策略应放在
+KnowledgeBase；若某个 Document 有例外，则 Document 可覆盖。每次提交都要把最终解析出的
+策略快照保存到 Revision / Run，避免后来改配置篡改历史流程。
+
+```text
+REQUIRE_APPROVAL
+  -> 准备 V1 + Chunk，V1 = pending
+  -> 创建 REV1 = pending
+  -> 创建 WorkflowRun R1
+  -> 等待人工审批
+  -> 通过后由 Workflow Node 调用 KnowledgeService 索引 V1
+
+AUTO_APPROVE_AND_INDEX
+  -> 直接走现有 KnowledgeService 技术闭环
+  -> 不必为了“可恢复”额外创建 WorkflowRun
+```
+
+并非所有免审批内容都要经过 Workflow。当前 `KnowledgeService` 已有 `failed`、
+`cleanup_required` 和 retry 的**技术恢复闭环**；只有需要人工等待、跨请求业务编排、
+业务审计、取消或多 Step 恢复时，才需要 Workflow 的**业务恢复闭环**。
+
+若未来免审批流程也需要额外通知、分支或审计，可增加固定 Definition，例如
+`knowledge_revision_auto_index`；这不是首版的必要前提。
+
+### 4. 审批路径的最小端到端状态
+
+```text
+提交：
+  REV1 = pending
+  R1 = pending -> running -> waiting_approval
+  S1(approval) = waiting_approval
+  S2(index_and_activate) = pending
+  V1 = pending
+
+人工 approve：
+  REV1 = approved
+  S1 = succeeded，输出 decision=approved
+  R1 = running
+  S2 保持 pending，成为下一可执行步骤
+  V1 仍为 pending
+
+执行 S2：
+  S2 = running，创建 Attempt A1 = running
+  KnowledgeService: V1 pending -> processing
+  事务外执行 Embedding / Qdrant
+  KnowledgeService: V1 processing -> indexed，并安全提升 active_version_id
+  A1 = succeeded，S2 = succeeded，R1 = succeeded
+
+人工 reject：
+  REV1 = rejected
+  S1 完成，输出 decision=rejected
+  R1 = cancelled
+  S2 不执行，V1 不进入 Qdrant
+```
+
+审批通过不等于员工已经能检索到新知识。审批后仍必须完成：
+
+```text
+Workflow Step 成功
+  + DocumentVersion indexed
+  + active_version_id 指向该 Version
+```
+
+在 V1 等待审批、索引中或索引失败时，旧的 active Version V0 继续为 RAG 服务。V1 成功索引后
+才可能替换 `active_version_id`。若 V2 已经成为 active，较旧 V1 即使晚到并 `indexed`，也不能
+把 active 指针回退；该条件更新的 `rowcount = 0` 是正常的“较新版本已生效”，不是数据库失败。
+
+### 5. MySQL 条件更新、rowcount 与幂等
+
+Workflow、审批和索引状态都必须在一条带“旧状态”条件的 SQL 中迁移：
+
+```sql
+UPDATE workflow_run
+SET status = 'approved'
+WHERE id = :run_id
+  AND status = 'waiting_approval';
+```
+
+`UPDATE` 的行锁会序列化同一记录的竞争；`WHERE ... AND old_status` 表达“只有状态仍符合
+预期才允许迁移”。只靠 `WHERE id = :run_id` 不足以防止后来请求覆盖已完成决定。
+
+| 结果 | 含义 | Service 层处理 |
+| --- | --- | --- |
+| SQL `execute()` 或 `commit()` 抛异常 | 连接、死锁、约束、超时等技术失败 | rollback，映射数据库/基础设施异常 |
+| `rowcount == 0` | SQL 正常完成，但没有记录符合全部条件 | 重读当前状态，映射 404、409 或幂等成功 |
+| `rowcount == 1` 且 commit 成功 | 本次状态迁移已持久化 | 返回成功 |
+
+`rowcount == 0` 不会自动抛异常。例如 approve 的重复请求，若当前已是 `approved` 且业务目标
+已经达成，应返回同一 Run 的**幂等成功**；若当前为 `rejected` / `cancelled`，则是 409 冲突。
+只有驱动/SQLAlchemy 的技术异常才由 `except` 捕获并映射。Redis Pipeline / Lua 也遵循同一
+区分：网络或命令故障是异常，条件不满足通常是返回值；Redis 不能替代 MySQL 持久化 Workflow
+状态。
+
+### 6. 索引失败、补偿与 reconciliation
+
+`DocumentVersion` 的恢复规则是：
+
+```text
+Embedding 失败（确定尚未写 Qdrant）
+  -> processing -> failed
+  -> retry: failed -> pending -> 正常索引
+
+Qdrant 分批 upsert 失败，清理成功
+  -> processing -> failed
+
+Qdrant 已部分写入，清理失败或结果不确定
+  -> processing -> cleanup_required
+  -> retry 前必须 delete_by_document_version
+  -> cleanup_required -> pending -> 正常索引
+```
+
+Qdrant Point 使用稳定 `chunk_id`，重复 upsert 覆盖同一个 Point，不生成重复 Point；清理按
+`document_version_id` 删除整版 Point。Embedding 向量不写入 MySQL，失败重试会读取同一 Version
+已有的 Chunk，重新进行 Embedding，不覆盖 Chunk 内容。
+
+硬崩溃与可捕获异常不同：若 Qdrant 已成功而进程在 MySQL `indexed` 前被杀死，`except` 没有机会
+运行，Version 会留下 `processing`，Qdrant 可能已有 Point。此时不能仅凭“Qdrant 有 Point”就
+直接标 `indexed`，因为它可能只有部分批次。
+
+首版安全恢复闭环是：
+
+```text
+确认旧执行者已终止（例如应用重启后的管理员手工操作）
+  -> 条件更新 processing -> cleanup_required
+  -> 事务外 delete_by_document_version(V1)
+  -> 条件更新 cleanup_required -> pending
+  -> 正常重新索引
+```
+
+`cleanup_required` 不是“永远失败”，而是一条持久化修复指令：“外部状态不确定，下一次必须先
+清理”。删除已不存在的 Point 也是安全的。不能仅凭 `updated_at` 超时就抢占 `processing`，因为
+旧请求可能仍在运行；自动 lease / heartbeat / fencing 的回收属于后续 Worker / Scheduler 能力。
+
+### 7. Workflow Definition、Run、Step、Attempt
+
+Definition 不是执行工具类，而是服务端代码维护的不可变流程说明书。首版不允许用户提交任意
+Workflow JSON、DSL 或 Python。
+
+```text
+WorkflowDefinition（代码中的不可变对象）
+  key = knowledge_revision_approval
+  version = 1
+  steps = wait_for_approval -> index_and_activate_version
+
+WorkflowRun（MySQL）
+  某一次对 REV1 的实际执行，绑定 key + version + 不可变 run_input
+
+StepRun（MySQL）
+  Definition 中某一步的总体状态
+
+Attempt（MySQL）
+  一个 Step 实际第几次由 Executor 尝试执行
+```
+
+第一次执行也会有 Attempt A1；并非只有发生重试的索引 Step 才有 Attempt。审批 Step 的 A1 负责
+进入 `waiting_approval`，审批人点击 approve/reject 是受审计的业务输入，不是让模型或客户端
+重新任意执行 Node。
+
+Definition 的版本管理规则：
+
+```text
+start_run：解析该 key 的当前发布版本
+resume_run：精确解析 Run 当初绑定的 key + version
+```
+
+发布 v2 时新增 Definition v2，绝不修改 v1 的步骤语义。数据库仍有 Run 引用 v1 时，Registry
+必须保留 v1；缺少 v1 或其 Node 时，安全报告 `WorkflowDefinitionUnavailable`，不能偷偷改用 v2。
+
+### 8. Registry、Node 与 Executor 的边界
+
+应用启动/依赖组装时注册两类东西：
+
+```text
+Definition Registry:
+  (knowledge_revision_approval, 1) -> Definition v1
+
+Node Registry:
+  wait_for_approval -> ApprovalNode
+  index_and_activate_version -> IndexAndActivateVersionNode
+```
+
+Definition 中的每个 Step 保存 `node_key` 与受控输入映射。Executor 根据 Run 绑定的 Definition
+找到当前 Step，再按 `node_key` 找到 Node。多个 Definition / Definition Version 可以复用同一个
+Node；不需要每一种业务 Definition 都创建一套 WorkflowService。
+
+```text
+Definition 选择 Node
+  -> Executor 调 Node.execute(typed_input)
+      -> Node 调业务 Service
+          -> NodeResult
+              -> Executor 写 Attempt / StepRun / WorkflowRun
+```
+
+Node 做具体业务动作，不直接改 Workflow 状态：
+
+```text
+ApprovalNode：返回 waiting_approval
+IndexAndActivateVersionNode：调用 KnowledgeService，不直连 Embedding / Qdrant SDK
+
+Executor：持久化 Attempt、推进 StepRun、选择下一条固定边、暂停或结束 Run
+```
+
+Definition 在创建 Run 前必须校验：key/version 存在、Step ID 不重复、Node 已注册、输入输出契约
+匹配、边与分支合法、没有环路。配置错误不创建半条 Run；恢复时也不能用错误或缺失的 Definition
+继续猜测执行。
+
+### 9. Executor 的短事务执行模式
+
+`SequentialWorkflowExecutor` 是后续 Story 6.3 要实现的具体执行器。它不是“一条一直等待的
+Python Thread”，首版由 `WorkflowService.start_run()`、`approve_run()`、`resume_run()` 在各自
+短事务提交后触发；Sprint 10 才替换为 Queue / Worker 触发同一个执行器。
+
+每个可执行 Step 的固定模式：
+
+```text
+短事务 1：
+  条件认领 StepRun pending -> running
+  创建 Attempt A1 = running
+  commit
+
+事务外：
+  Executor -> Node -> 业务 Service -> 外部 I/O
+
+短事务 2：
+  持久化 Attempt 结果
+  StepRun -> succeeded / waiting / failed
+  WorkflowRun -> 下一状态
+  commit
+```
+
+外部 I/O 期间不得持有 Workflow 数据库事务。若 V1 已 `indexed + active`，但进程在写 S2
+成功前崩溃，恢复时 KnowledgeService 返回“目标已达成”，Executor 以幂等成功收尾，不重复写
+Qdrant。若 V1 为 `processing`，不能抢占旧执行者；需等待或执行已确认安全的 reconciliation。
+
+Node 输入只来自不可变 run_input、前一步的结构化输出、认证主体和服务端配置。审批分支是固定的：
+
+```text
+S1.output.decision == approved -> S2
+S1.output.decision == rejected -> WorkflowRun cancelled
+```
+
+缺字段、未知 decision 或类型不匹配必须明确失败，不能默认批准或让客户端越过 S1 直接请求 S2。
+
+### 10. 查询、恢复、取消与审计
+
+`WorkflowService.get_run()` 只读取 MySQL 事实，不调用 Qdrant / Embedding。它应让客户端查看
+Run、Step 与 Attempt 的安全摘要，而不是等待内存线程：
+
+```text
+Run 当前状态
+每个 Step 当前状态与安全输出
+每个 Attempt 的次数、开始/结束时间、错误类别
+引用的 revision_id / document_version_id
+```
+
+大结果进入 Artifact / File Resource；Workflow 表只保存例如 `decision`、`chunk_count`、
+`document_version_id`、错误码等有限摘要，禁止保存向量、Prompt 正文、Provider 原始异常或 Secret。
+
+`resume_run()` 不是强行从头重置：它读取 Definition、最后未完成 Step 和 Version 技术状态，创建
+下一 Attempt 并从安全边界继续。`succeeded` 的 Run 返回当前结果而不重跑；因人工 reject 终止的
+Run 不用普通 resume，而应由新的内容修改/重新提交创建新的业务 Revision / Run。
+
+`cancel_run()` 与 `reject_run()` 含义不同：
+
+```text
+reject_run：审批人作出 rejected 业务决定
+cancel_run：作者撤回或管理员终止，业务上应记录 withdrawn / cancelled
+```
+
+在外部 I/O 尚未开始时，取消可用条件更新直接终止。若索引 Node 已在 Embedding/Qdrant 中，取消
+必须协作式地在安全边界处理，不能仅杀死线程或把 Run 直接伪装成已取消；运行中取消的精确状态
+字段与补偿策略留给 Story 6.1 状态机设计。
+
+### 11. Workflow 与 Agent 的边界（Sprint 7 前置知识）
+
+Workflow 的下一步由开发者写死的 Definition、状态机和条件分支决定；Agent 的模型可在受控 Tool
+集合中基于上下文动态建议下一步。动态不代表越权：涉及企业数据、写操作或外网实时信息时，Agent
+必须通过受控 Tool，再由 Tool 调用 Service。
+
+```text
+Workflow:
+  Definition -> Node -> Service
+
+Agent:
+  Model -> Tool（Policy / 权限 / Schema / 审计）-> Service
+```
+
+Node 是 Definition 固定指定、由 Executor 调用的内部步骤；Tool 是 Agent 可以选择但必须通过
+Policy 的外部能力。Agent 不能直连 MySQL、Redis、Qdrant、Provider SDK 或 Secret，也不能绕过
+审批直接 approve、写 active_version_id 或调用内部索引 Node。它最多通过受控 Tool 提交修订或
+请求启动已定义 Workflow。Sprint 7 才实现有 Tool Policy 的单 Agent；Sprint 6 只实现固定、可靠的
+Workflow。
 
 ## Story 路线图
 
