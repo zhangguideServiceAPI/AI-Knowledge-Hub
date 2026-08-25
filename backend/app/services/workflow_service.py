@@ -96,6 +96,7 @@ class WorkflowService:
                     definition_version=definition.version,
                     run_input={
                         "revision_id": revision_id,
+                        "owner_id": owner_id,
                         "document_id": document.id,
                         "document_version_id": version.id,
                     },

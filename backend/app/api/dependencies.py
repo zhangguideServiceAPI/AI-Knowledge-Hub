@@ -37,8 +37,11 @@ from app.services.knowledge_service import (
 )
 from app.services.rag_chat_service import RAGChatService
 from app.services.workflow_service import WorkflowService
+from app.workflow.executor import SequentialWorkflowExecutor
+from app.workflow.knowledge_nodes import IndexAndActivateVersionNode
 from app.workflow.knowledge_revision_definition import (
     build_knowledge_revision_definition_registry,
+    build_knowledge_revision_workflow_runtime,
 )
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
@@ -165,6 +168,23 @@ async def get_knowledge_indexing_components(
     finally:
         # AsyncQdrantClient 持有 HTTP 连接池；请求结束必须关闭，避免长期运行时泄漏连接。
         await qdrant_client.close()
+
+
+async def get_workflow_executor(
+    session: Annotated[Session, Depends(get_db)],
+    knowledge_service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    components: Annotated[
+        KnowledgeIndexingComponents,
+        Depends(get_knowledge_indexing_components),
+    ],
+) -> SequentialWorkflowExecutor:
+    """组装带真实 KnowledgeService 索引 Node 的请求级异步 Workflow Executor。"""
+
+    index_node = IndexAndActivateVersionNode(knowledge_service, components)
+    definition_registry, node_registry = build_knowledge_revision_workflow_runtime(
+        index_node=index_node
+    )
+    return SequentialWorkflowExecutor(session, definition_registry, node_registry)
 
 
 async def get_knowledge_retrieval_components() -> AsyncIterator[

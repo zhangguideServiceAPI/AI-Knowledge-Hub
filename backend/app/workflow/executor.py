@@ -1,6 +1,7 @@
 """顺序执行已验证 Definition 中一个 ready Step 的最小执行器。"""
 
 import logging
+from inspect import isawaitable
 
 from dataclasses import dataclass
 
@@ -82,16 +83,19 @@ class SequentialWorkflowExecutor:
                 f"Node input does not match {definition_step.node_key} contract."
             )
 
+        execution_context = WorkflowNodeExecutionContext(
+            workflow_run_id=run.id,
+            workflow_step_run_id=step.id,
+            workflow_attempt_id=attempt.id,
+            idempotency_key=step.id,
+        )
+        # 上游 SELECT 可能隐式开始事务；外部 Node 调用前必须结束它。
+        self._session.rollback()
+
         try:
             output = node.execute(
                 resolved_input,
-                WorkflowNodeExecutionContext(
-                    workflow_run_id=run.id,
-                    workflow_step_run_id=step.id,
-                    workflow_attempt_id=attempt.id,
-                    # StepRun ID 在 A1、A2… 中保持不变，外部 Service 可安全复用它去重。
-                    idempotency_key=step.id,
-                ),
+                execution_context,
             )
             if not isinstance(output, node.output_type) or not isinstance(output, dict):
                 raise WorkflowDefinitionTopologyError(
@@ -119,6 +123,70 @@ class SequentialWorkflowExecutor:
             )
             raise
 
+        return self._complete_claimed_step(
+            run_id, step.id, attempt, output, next_step_id
+        )
+
+    async def execute_next_async(
+        self, run_id: str, node_input: object | None = None
+    ) -> StepExecutionResult | None:
+        """按相同两段短事务执行异步 Node；await 期间不持有数据库事务。"""
+
+        run, step, attempt = self._claim_next_step(run_id)
+        if run is None or step is None or attempt is None:
+            return None
+        try:
+            definition = self._definition_registry.get(
+                run.definition_key, run.definition_version
+            )
+            definition_step = definition.step_by_id(step.step_id)
+            node = self._node_registry.get(definition_step.node_key)
+            resolved_input = self._resolve_node_input(
+                run, step, definition_step, node_input
+            )
+            if not isinstance(resolved_input, node.input_type):
+                raise WorkflowDefinitionTopologyError(
+                    f"Node input does not match {definition_step.node_key} contract."
+                )
+        except WorkflowDefinitionError:
+            self._fail_claimed_step(run_id, step.id, attempt.id)
+            raise
+
+        execution_context = WorkflowNodeExecutionContext(
+            workflow_run_id=run.id,
+            workflow_step_run_id=step.id,
+            workflow_attempt_id=attempt.id,
+            idempotency_key=step.id,
+        )
+        self._session.rollback()
+        try:
+            output = node.execute(
+                resolved_input,
+                execution_context,
+            )
+            if isawaitable(output):
+                output = await output
+            if not isinstance(output, node.output_type) or not isinstance(output, dict):
+                raise WorkflowDefinitionTopologyError(
+                    f"Node {definition_step.node_key} must return its declared JSON object output."
+                )
+            next_step_id = self._route_resolver.select_next_step_id(
+                definition_step, node_output=output
+            )
+        except WorkflowRetryableNodeError:
+            self._fail_claimed_step(
+                run_id, step.id, attempt.id, _NODE_RETRYABLE_FAILURE
+            )
+            raise
+        except Exception:
+            self._fail_claimed_step(
+                run_id, step.id, attempt.id, _NODE_EXECUTION_FAILURE
+            )
+            logger.exception(
+                "workflow_async_node_execution_failed",
+                extra={"run_id": run_id, "step_id": step.id},
+            )
+            raise
         return self._complete_claimed_step(
             run_id, step.id, attempt, output, next_step_id
         )

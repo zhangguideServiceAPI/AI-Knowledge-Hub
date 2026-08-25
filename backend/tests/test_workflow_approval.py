@@ -1,6 +1,8 @@
 """Story 6.6 人工审批、惰性过期与索引状态隔离测试。"""
 
+import asyncio
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +22,11 @@ from app.workflow.definition import (
     WorkflowStepDefinition,
 )
 from app.workflow.node import WorkflowNodeExecutionContext
+from app.workflow.executor import SequentialWorkflowExecutor
+from app.workflow.knowledge_nodes import IndexAndActivateVersionNode
+from app.workflow.knowledge_revision_definition import (
+    build_knowledge_revision_workflow_runtime,
+)
 from app.workflow.registry import WorkflowDefinitionRegistry, WorkflowNodeRegistry
 from app.workflow.state_machine import WorkflowRunStatus, WorkflowStepRunStatus
 
@@ -195,3 +202,51 @@ def test_reconcile_expiry_lazily_cancels_submitted_revision(session: Session) ->
     assert result.applied is True
     assert result.revision.status == KnowledgeRevisionStatus.EXPIRED.value
     assert result.run.status == WorkflowRunStatus.CANCELLED.value
+
+
+def test_approved_revision_executes_real_index_node_through_knowledge_service(
+    session: Session,
+) -> None:
+    """审批后只由真实 Node 调用 KnowledgeService，Workflow 不直接改 Version 技术状态。"""
+
+    service, owner, version, revision_id = _submit(session)
+    approved = service.approve_revision(
+        owner_id=owner.id, revision_id=revision_id, approver_id=owner.id
+    )
+    knowledge_service = AsyncMock()
+    knowledge_service.index_document_version.return_value = DocumentVersion(
+        id=version.id,
+        document_id=version.document_id,
+        version_number=version.version_number,
+        processing_fingerprint=version.processing_fingerprint,
+        parser_name=version.parser_name,
+        parser_version=version.parser_version,
+        chunker_name=version.chunker_name,
+        chunker_config=version.chunker_config,
+        embedding_profile=version.embedding_profile,
+        embedding_dimension=version.embedding_dimension,
+        status=DocumentVersionStatus.INDEXED.value,
+    )
+    components = object()
+    index_node = IndexAndActivateVersionNode(knowledge_service, components)  # type: ignore[arg-type]
+    definitions, nodes = build_knowledge_revision_workflow_runtime(
+        index_node=index_node
+    )
+    executor = SequentialWorkflowExecutor(session, definitions, nodes)
+
+    result = asyncio.run(executor.execute_next_async(approved.run.id))
+
+    assert result is not None
+    assert result.run_status is WorkflowRunStatus.SUCCEEDED
+    knowledge_service.index_document_version.assert_awaited_once_with(
+        owner_id=owner.id,
+        document_id=version.document_id,
+        document_version_id=version.id,
+        components=components,
+    )
+    # 这个 fake Service 不持久化技术状态；断言 Workflow 没有越界直接改写它。
+    session.expire_all()
+    assert (
+        session.get(DocumentVersion, version.id).status
+        == DocumentVersionStatus.PENDING.value
+    )

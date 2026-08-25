@@ -11,8 +11,8 @@ Completed: Sprint 2 Session & Identity
 Completed: Sprint 3 Storage & Resource Management
 Completed: Sprint 4 AI Gateway, Prompt Center, Streaming & Usage
 Completed: Sprint 5 Knowledge / RAG first-version closeout
-Current:   Sprint 6 Workflow, Story 6.7 API & Security
-Next:      Sprint 6.8 RAG Vertical Slice
+Current:   Sprint 6 Workflow, Story 6.8 RAG Vertical Slice
+Next:      Sprint 6.9 Lifecycle & Review
 ```
 
 当前学习与实施总控文档：[Sprint 6 Workflow](Sprint/Sprint6.md)。

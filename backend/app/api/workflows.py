@@ -5,7 +5,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_current_user, get_workflow_service
+from app.api.dependencies import (
+    get_current_user,
+    get_workflow_executor,
+    get_workflow_service,
+)
 from app.models.knowledge_revision import KnowledgeRevision
 from app.models.workflow import WorkflowRun
 from app.schemas.user import UserResponse
@@ -16,6 +20,7 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
 )
 from app.services.workflow_service import WorkflowService
+from app.workflow.executor import SequentialWorkflowExecutor
 
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
 
@@ -99,6 +104,26 @@ def resume_workflow_run(
 
     result = workflow_service.resume_failed_run(owner_id=current_user.id, run_id=run_id)
     return _run_response(result.run)
+
+
+@router.post("/runs/{run_id}/execute", response_model=WorkflowRunResponse)
+async def execute_workflow_run(
+    run_id: str,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    executor: Annotated[SequentialWorkflowExecutor, Depends(get_workflow_executor)],
+) -> WorkflowRunResponse:
+    """执行当前所有者已就绪的一个异步 Step；索引 Node 仍只经 KnowledgeService 工作。"""
+
+    workflow_service.get_run(owner_id=current_user.id, run_id=run_id)
+    result = await executor.execute_next_async(run_id)
+    if result is None:
+        return _run_response(
+            workflow_service.get_run(owner_id=current_user.id, run_id=run_id)
+        )
+    return _run_response(
+        workflow_service.get_run(owner_id=current_user.id, run_id=run_id)
+    )
 
 
 @router.post(

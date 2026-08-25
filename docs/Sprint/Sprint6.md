@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.7 API & Security
-Current Step: 已完成认证 Workflow 资源 API、越权 404 与稳定冲突语义；下一步接入知识索引纵向切片
+Current Story: Story 6.8 RAG Vertical Slice
+Current Step: 已接通批准后的异步索引 Node、短事务 Executor 和恢复语义；下一步进行生命周期复盘
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -367,6 +367,36 @@ reject / lazy expiry
   Router 不根据 `rowcount` 自己猜测状态。
 - 生产 Definition Registry 已注册审批等待与索引后继的固定 Node key。6.7 不执行索引 Node；6.8
   才将它接到 `KnowledgeService`，保持 API Story 不直接触碰 Embedding/Qdrant。
+
+### 1.8 Story 6.8 已实现：知识索引与 RAG 可见性的纵向切片
+
+批准后的 `index_and_activate_version` Step 由真实的异步 `IndexAndActivateVersionNode` 执行。它只把
+冻结在 `WorkflowRun.run_input` 的 `owner_id`、`document_id` 和 `document_version_id` 交给
+`KnowledgeService.index_document_version()`；Node、Definition 和 Executor 都不导入或直连
+Embedding、Qdrant 或 Provider SDK。
+
+```text
+approve_revision()
+  -> Revision = approved；Run = running；S2(index) = pending
+  -> POST /workflows/runs/{run_id}/execute
+  -> Executor 短事务认领 S2 + 创建 Attempt A1
+  -> 事务外 await IndexAndActivateVersionNode.execute()
+  -> KnowledgeService：pending -> processing -> Embedding/Qdrant
+  -> KnowledgeService.complete_version_indexing()：indexed + active_version_id
+  -> Executor 短事务收口 A1 / S2 / Run = succeeded
+  -> 既有 RAGChatService 仅检索 active 且 indexed 的 Version，并保留 Citation
+```
+
+- `execute_next_async()` 在认领完成后显式结束读事务，`await` 网络 I/O 期间不持有 MySQL 事务；Node
+  返回后才开启第二段短事务写入 Attempt、StepRun 和 Run 的最终事实。
+- `IndexAndActivateVersionNode` 只在 `DocumentVersion.status == indexed` 时成功。`None`（其他执行者已
+  认领）以及 `failed` / `cleanup_required` 都转成 `WorkflowRetryableNodeError`，因而持久化为
+  `node_retryable`，供现有 `resume_failed_run()` 在技术状态恢复后创建下一 Attempt。
+- Qdrant 写入后 MySQL 收口前崩溃的处理仍属于 `KnowledgeService` 的 Version 生命周期：它先清理或将
+  Version 标为 `cleanup_required`，Workflow 绝不靠“Qdrant 中似乎有点”猜测成功。人工/受控
+  reconciliation 将 Version 恢复到可重试状态后，再显式 resume Workflow。
+- 端点一次只执行一个 ready Step，便于当前同步 HTTP 学习与审计；它不是后台 Worker。Sprint 10 才会把
+  同一个 Executor 交给队列/Worker 调度，且不会改变 Node 到 Service 的边界。
 
 ### 2. 当前 Version 在索引前已经存在
 

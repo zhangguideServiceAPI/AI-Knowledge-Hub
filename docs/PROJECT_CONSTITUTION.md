@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.7 API & Security
+Current Story: Story 6.8 RAG Vertical Slice
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Continue from protected Workflow APIs into the knowledge indexing vertical slice
+  - Validate the approved revision path through KnowledgeService indexing and RAG visibility
 
 Completed:
   - Authentication, JWT and global business error mapping

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -156,3 +158,17 @@ def test_executor_builds_declared_input_from_durable_run_snapshot(
 
     assert result is not None
     assert node.last_input == {"value": "r1"}
+
+
+def test_async_executor_awaits_node_without_holding_claim_transaction(
+    session: Session,
+) -> None:
+    node = FakeNode()
+    run = _running_run(session)
+
+    result = asyncio.run(
+        _executor(session, node).execute_next_async(run.id, {"value": "ok"})
+    )
+
+    assert result is not None
+    assert result.run_status is WorkflowRunStatus.SUCCEEDED
