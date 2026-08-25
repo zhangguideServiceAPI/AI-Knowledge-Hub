@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.6 Human Approval
-Current Step: 已完成 Revision 业务审批、等待/批准/拒绝/惰性过期；下一步提供受保护的 Workflow API
+Current Story: Story 6.7 API & Security
+Current Step: 已完成认证 Workflow 资源 API、越权 404 与稳定冲突语义；下一步接入知识索引纵向切片
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -353,6 +353,20 @@ reject / lazy expiry
   已过期 submitted Revision 取消，保持当前 Sprint 没有 Scheduler 的边界。
 - 当前项目尚无审批角色模型，因此首版只允许 Revision 所有者处理；Story 6.7 的 API 保持此权限
   边界，未来企业角色/组织授权必须在 Service 层替换，而不能让 Router 信任 approver ID。
+
+### 1.7 Story 6.7 已实现：Workflow API 与权限边界
+
+`/workflows` Router 只做 HTTP 参数、认证身份与响应 DTO 转换；它不执行 SQL、不会调用 Node，也
+不接受客户端传入的 owner、approver、Definition 版本或状态字符串。
+
+- `POST /workflows/knowledge-revisions` 创建固定 `knowledge_revision_approval@1` 的等待审批 Run；
+  过期时间由服务器七天策略计算，客户端仅能指定已拥有的 Document/Version。
+- `GET /workflows/runs/{run_id}`、`POST /runs/{run_id}/resume`、`POST /revisions/{id}/approve` 与
+  `POST /revisions/{id}/reject` 都从认证 Principal 取得 owner/approver，转交给 WorkflowService。
+- 所有者条件查询使“不存在”和“跨用户资源”都变成 404。审批竞争、永久失败与重试超限映射 409；
+  Router 不根据 `rowcount` 自己猜测状态。
+- 生产 Definition Registry 已注册审批等待与索引后继的固定 Node key。6.7 不执行索引 Node；6.8
+  才将它接到 `KnowledgeService`，保持 API Story 不直接触碰 Embedding/Qdrant。
 
 ### 2. 当前 Version 在索引前已经存在
 

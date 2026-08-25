@@ -36,6 +36,10 @@ from app.services.knowledge_service import (
     KnowledgeService,
 )
 from app.services.rag_chat_service import RAGChatService
+from app.services.workflow_service import WorkflowService
+from app.workflow.knowledge_revision_definition import (
+    build_knowledge_revision_definition_registry,
+)
 from app.services.login_rate_limiter import LoginRateLimiter
 from app.storage.factory import get_storage_bucket, get_storage_provider
 from app.storage.provider import StorageProvider
@@ -95,6 +99,14 @@ def get_knowledge_service(
     """用请求级数据库 Session 创建 KnowledgeService，供知识库 API 注入。"""
 
     return KnowledgeService(session)
+
+
+def get_workflow_service(
+    session: Annotated[Session, Depends(get_db)],
+) -> WorkflowService:
+    """组装请求级 WorkflowService；Definition 由服务端固定代码注册。"""
+
+    return WorkflowService(session, build_knowledge_revision_definition_registry())
 
 
 async def get_knowledge_indexing_components(

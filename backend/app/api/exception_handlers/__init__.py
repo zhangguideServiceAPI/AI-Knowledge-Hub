@@ -8,6 +8,7 @@ from .ai import register_ai_exception_handlers
 from .auth import register_auth_exception_handlers
 from .knowledge import register_knowledge_exception_handlers
 from .storage import register_storage_exception_handlers
+from .workflow import register_workflow_exception_handlers
 
 __all__ = [
     "PublicAIError",
@@ -23,3 +24,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     register_storage_exception_handlers(app)
     register_knowledge_exception_handlers(app)
     register_ai_exception_handlers(app)
+    register_workflow_exception_handlers(app)

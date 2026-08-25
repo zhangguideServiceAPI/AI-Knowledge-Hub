@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.6 Human Approval
+Current Story: Story 6.7 API & Security
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Continue from human approval into protected Workflow APIs
+  - Continue from protected Workflow APIs into the knowledge indexing vertical slice
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -209,9 +209,10 @@ Completed:
   - Controlled input mapping, fixed branch resolution and Executor use of durable input snapshots
   - Retryable Node failure classification, stable Step idempotency key and conditional resume to A2
   - KnowledgeRevision business approval, waiting Step, approved/rejected/expired conditional closure
+  - Authenticated Workflow APIs, owner-hidden lookup and stable 404/409 error mapping
 
 Not Started:
-  - Workflow API and knowledge indexing vertical slice
+  - Knowledge indexing vertical slice and lifecycle review
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。

@@ -126,6 +126,16 @@ class WorkflowService:
             raise
         return ApprovalDecisionResult(revision=revision, run=run, applied=True)
 
+    def get_run(self, *, owner_id: int, run_id: str) -> WorkflowRun:
+        """读取当前所有者的 Run；查询不调用 Node、Qdrant 或 Provider。"""
+
+        return self._get_owned_run(owner_id=owner_id, run_id=run_id)
+
+    def get_revision(self, *, owner_id: int, revision_id: str) -> KnowledgeRevision:
+        """读取当前所有者的 Revision；查询不推进审批状态。"""
+
+        return self._get_owned_revision(owner_id=owner_id, revision_id=revision_id)
+
     def approve_revision(
         self, *, owner_id: int, revision_id: str, approver_id: int
     ) -> ApprovalDecisionResult:
