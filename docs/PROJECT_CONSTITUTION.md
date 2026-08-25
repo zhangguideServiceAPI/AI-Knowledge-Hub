@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.2 Definition & Node Contract
+Current Story: Story 6.3 Sequential Executor
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Continue from validated code-defined Definitions into the sequential executor
+  - Continue from the minimum sequential executor into controlled mapping and fixed branching
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -205,9 +205,10 @@ Completed:
   - ADR-0030 through ADR-0032 and Sprint 5 first-version closeout verification
   - WorkflowRun, WorkflowStepRun and WorkflowAttempt models, migration and database constraints
   - Immutable Workflow Definition, Node Protocol, Registry and startup validation
+  - SequentialWorkflowExecutor, conditional Step claim and durable Attempt / StepRun / Run closure
 
 Not Started:
-  - Sequential Executor and persisted state transition Service
+  - Controlled mapping, fixed branching and persisted state transition Service
   - Retry, approval and API
 ```
 

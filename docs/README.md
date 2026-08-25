@@ -11,8 +11,8 @@ Completed: Sprint 2 Session & Identity
 Completed: Sprint 3 Storage & Resource Management
 Completed: Sprint 4 AI Gateway, Prompt Center, Streaming & Usage
 Completed: Sprint 5 Knowledge / RAG first-version closeout
-Current:   Sprint 6 Workflow, Story 6.2 Definition & Node Contract
-Next:      Sprint 6.3 Sequential Executor
+Current:   Sprint 6 Workflow, Story 6.3 Sequential Executor
+Next:      Sprint 6.4 Mapping & Branching
 ```
 
 当前学习与实施总控文档：[Sprint 6 Workflow](Sprint/Sprint6.md)。

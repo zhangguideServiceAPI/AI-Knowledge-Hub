@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.2 Definition & Node Contract
-Current Step: 已建立代码型不可变 Definition、Node Protocol、Registry 与启动期拓扑/类型校验；下一步进入 Sequential Executor
+Current Story: Story 6.3 Sequential Executor
+Current Step: 已完成最小顺序 Executor 的认领、事务外 Node 调用与 Attempt / StepRun / Run 收口；下一步进入受控字段映射与固定条件分支
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -233,6 +233,41 @@ WorkflowDefinition(key, version, input_type, start_step_id)
 
 因此 `start_run()` 在后续 Story 只会使用已验证的 Definition 创建 Run；若历史版本没有注册，
 必须安全报 `WorkflowDefinitionNotFoundError`，绝不改用最新 Definition。
+
+### 1.3 Story 6.3 已实现：最小顺序 Executor 与两段短事务
+
+`SequentialWorkflowExecutor.execute_next(run_id, node_input)` 是当前唯一公开执行入口：它只处理
+处于 `running` 的 Run 中 `step_index` 最小的 `pending` Step；没有可认领工作时返回 `None`，而
+不是把并发的正常竞争误写成系统错误。
+
+```text
+短事务 1
+  StepRun: pending --(带旧状态 WHERE 的 UPDATE)--> running
+  Attempt: 创建 A1 = running
+  commit
+
+事务外
+  根据 Run 保存的 key/version 找 Definition，再按 Step 的 node_key 找已注册 Node
+  Node.execute(node_input)
+
+短事务 2
+  成功：Attempt / StepRun -> succeeded，写入安全 JSON 输出；最后一个 Step 再将 Run -> succeeded
+  失败：Attempt / StepRun / Run -> failed，并共同保存稳定 failure_code
+  commit
+```
+
+- `WorkflowRepository` 只封装查询和条件 `UPDATE`，不自行 `commit`；事务边界由 Executor 清晰
+  控制。`rowcount == 1` 表示本调用完成状态迁移；`rowcount == 0` 是竞争或状态已变化，Executor
+  回滚本段事务，绝不覆盖别人的结果。
+- Node 调用、任意业务 Service 和未来的网络 I/O 都在两段 MySQL 短事务之外。当前测试 Node 只
+  模拟同步调用；未来真实 Node 仍只能调用 `KnowledgeService`，不能直连 Embedding、Qdrant 或
+  Provider SDK。
+- Step 已认领后，无论 Node 抛异常、输入/输出契约不符合，还是历史 Definition / Node 意外缺失，
+  Executor 都会尝试将 Attempt、StepRun 与 Run 收口为 `failed`，避免留下无法解释的 `running`。
+- 当前输出限定为可持久化的 JSON object（`dict[str, object]`）；大结果、文件或敏感原文不能
+  塞进 `output_payload`，应在后续通过受控 Artifact / File Resource 引用。
+- 此 Story 尚未实现从 `run_input` / 上一步输出构造下一步输入，也没有条件分支、审批等待、重试、
+  Service/API 或后台 Worker；这些职责不能从 Executor 的最小实现中“顺手补上”。
 
 ### 2. 当前 Version 在索引前已经存在
 
@@ -476,7 +511,7 @@ Definition 在创建 Run 前必须校验：key/version 存在、Step ID 不重�
 
 ### 9. Executor 的短事务执行模式
 
-`SequentialWorkflowExecutor` 是后续 Story 6.3 要实现的具体执行器。它不是“一条一直等待的
+`SequentialWorkflowExecutor` 是 Story 6.3 已实现的最小具体执行器。它不是“一条一直等待的
 Python Thread”，首版由 `WorkflowService.start_run()`、`approve_run()`、`resume_run()` 在各自
 短事务提交后触发；Sprint 10 才替换为 Queue / Worker 触发同一个执行器。
 

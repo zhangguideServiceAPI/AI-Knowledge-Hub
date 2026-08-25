@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 6 - Workflow，正在完成 Story 6.2 Definition & Node Contract**
+当前阶段：**Sprint 6 - Workflow，正在完成 Story 6.3 Sequential Executor**
 
 已经完成：
 
@@ -55,7 +55,8 @@ Sprint 1 Authentication、Sprint 2 Session & Identity Management、Sprint 3 Stor
 Resource Management、Sprint 4 AI Gateway 与 Sprint 5 Knowledge / RAG 第一版已完成。
 当前 Sprint 6 正在为知识修订审批、索引与恢复闭环建立持久化 Workflow 能力；已完成
 WorkflowRun、WorkflowStepRun、WorkflowAttempt 的领域模型、状态机、Migration 与测试，以及
-代码型 Definition、Node Protocol、Registry 和启动期校验；尚未实现 Executor 或审批 API。
+代码型 Definition、Node Protocol、Registry、启动期校验和最小顺序 Executor；尚未实现字段映射、
+条件分支、审批 API 或后台 Worker。
 
 ## 技术栈
 
