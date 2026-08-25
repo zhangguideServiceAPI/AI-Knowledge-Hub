@@ -6,7 +6,7 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 
 ## 当前进度
 
-当前阶段：**Sprint 4 - AI Gateway 已完成，下一阶段为 Sprint 5 Knowledge / RAG**
+当前阶段：**Sprint 6 - Workflow，正在完成 Story 6.2 Definition & Node Contract**
 
 已经完成：
 
@@ -52,8 +52,10 @@ AI-Knowledge-Hub 是一个长期工程实践项目，目标是在构建生产级
 - ADR-0025 至 ADR-0029，以及 Fake、Contract、API、Streaming 和真实 Provider 测试
 
 Sprint 1 Authentication、Sprint 2 Session & Identity Management、Sprint 3 Storage &
-Resource Management 和 Sprint 4 AI Gateway 已完成。Sprint 5 将连接 File Resource 与
-AI Gateway，进入 Knowledge / RAG；当前还没有实现解析、Chunk、Embedding 或检索。
+Resource Management、Sprint 4 AI Gateway 与 Sprint 5 Knowledge / RAG 第一版已完成。
+当前 Sprint 6 正在为知识修订审批、索引与恢复闭环建立持久化 Workflow 能力；已完成
+WorkflowRun、WorkflowStepRun、WorkflowAttempt 的领域模型、状态机、Migration 与测试，以及
+代码型 Definition、Node Protocol、Registry 和启动期校验；尚未实现 Executor 或审批 API。
 
 ## 技术栈
 
@@ -249,7 +251,7 @@ docker compose \
 - [项目愿景](docs/项目愿景.md)
 - [AI 协作规范](docs/AI协作规范.md)
 - [Code Review 规范](docs/CodeReview规范.md)
-- [当前 Sprint](docs/Sprint/Sprint4.md)
+- [当前 Sprint](docs/Sprint/Sprint6.md)
 - [API 规范](docs/API规范.md)
 - [架构决策记录](docs/architecture/adr/)
 

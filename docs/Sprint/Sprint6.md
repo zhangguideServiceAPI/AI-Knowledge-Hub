@@ -7,8 +7,8 @@ Sprint 6 已在 Sprint 5 Knowledge / RAG 第一版完成收尾验收后进入学
 
 ```text
 Current Sprint: Sprint 6 Workflow
-Current Story: Story 6.0 Business Case & System Map
-Current Step: Story 6.0 学习记录已整理；在进入 Story 6.1 的 Model / Migration 设计前，继续以一个小步骤复核已确定的边界，不直接写代码
+Current Story: Story 6.2 Definition & Node Contract
+Current Step: 已建立代码型不可变 Definition、Node Protocol、Registry 与启动期拓扑/类型校验；下一步进入 Sequential Executor
 North Star: 让开发者预定义的多步骤业务可以持久化、重试、暂停和恢复
 ```
 
@@ -184,6 +184,55 @@ approved != 已被员工 RAG 使用
 
 `rejected` 是人作出的正常业务决定；`failed` 是技术执行失败。员工是否能使用某一 Version，
 仍由 `DocumentVersion.status == indexed` 且 `Document.active_version_id` 指向该 Version 决定。
+
+### 1.1 Story 6.1 已实现：Workflow 执行事实模型
+
+Story 6.1 已实现最小的持久化 Workflow 领域基础，尚未实现 Node、Executor、Service 或 API：
+
+```text
+WorkflowRun
+  -> WorkflowStepRun（每条 Run 中每个固定 Step 一条）
+      -> WorkflowAttempt（该 Step 的 A1、A2…）
+```
+
+- `WorkflowRun` 保存 owner、Definition key/version、受校验的 `run_input` 快照和整体状态；
+  Definition 身份在后续 Service 中不可修改。
+- `WorkflowStepRun` 用 `step_id` 与 `step_index` 固定当前 Run 中的步骤语义和顺序；二者在同一
+  Run 内都唯一。
+- `WorkflowAttempt` 用同一 Step 内唯一且大于 0 的 `attempt_number` 记录真实执行尝试。
+- 三层状态均由 `StrEnum` 和 MySQL `CheckConstraint` 限制；`failed` 必须带稳定
+  `failure_code`，其余状态不得残留失败码。
+- `app.workflow.state_machine` 将 Run 的合法“状态 + 事件 -> 下一状态”规则集中为只读表；
+  非法状态或事件立即明确失败。它不直接写数据库，后续 Service 将用该规则构造条件 UPDATE。
+- Migration `e6f4c13e2a7b` 创建三张表；模型测试覆盖默认值、外键、状态、失败码和唯一约束。
+
+状态迁移本身仍属于后续 WorkflowService / Executor：它必须使用带旧状态条件的 `UPDATE`，
+并把 `rowcount == 0` 分类为幂等成功、409 或 404，不能在 ORM Model 内部偷偷改状态。
+
+### 1.2 Story 6.2 已实现：Definition、Node 与启动期校验
+
+Story 6.2 将“流程说明书”和“节点能力”定义为服务端代码契约，而不是数据库可编辑图或客户端
+DSL。当前只支持线性单后继，尚不执行任何 Node：
+
+```text
+WorkflowDefinition(key, version, input_type, start_step_id)
+  -> WorkflowStepDefinition(step_id, node_key, input_type, next_step_id)
+      -> WorkflowNode(node_key, input_type, output_type, execute)
+```
+
+- `WorkflowDefinition` / `WorkflowStepDefinition` 是 `frozen dataclass`；key/version、Step ID、
+  Node key 和输入类型在创建时就校验，历史 Run 将按保存的精确 key/version 查找。
+- `WorkflowNode` 是 Python `Protocol`，规定 Node 必须声明输入/输出类型与 `execute()`；
+  它不会直接调用 Qdrant 或 Provider SDK，真实 Node 的业务实现属于后续 Story。
+- `WorkflowNodeRegistry` 先注册唯一 Node；`WorkflowDefinitionRegistry` 再检查 Definition。
+  两个表均在组装后只读，Registry 校验绝不调用 `execute()`。
+- 启动期明确拒绝：重复 Node key、重复 Definition key/version、缺 Node、未知后继、多个前驱、
+  环、不可达 Step、Definition/Node 输入不匹配和相邻 Node 输出/输入不匹配。
+- 当前 `next_step_id` 只表达固定顺序；字段映射和条件分支将在 Story 6.4 加入，不能现在偷用
+  `dict`、字符串表达式或 `eval` 绕过类型校验。
+
+因此 `start_run()` 在后续 Story 只会使用已验证的 Definition 创建 Run；若历史版本没有注册，
+必须安全报 `WorkflowDefinitionNotFoundError`，绝不改用最新 Definition。
 
 ### 2. 当前 Version 在索引前已经存在
 

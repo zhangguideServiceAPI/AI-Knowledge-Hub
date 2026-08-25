@@ -10,11 +10,12 @@ Completed: Sprint 1 Authentication
 Completed: Sprint 2 Session & Identity
 Completed: Sprint 3 Storage & Resource Management
 Completed: Sprint 4 AI Gateway, Prompt Center, Streaming & Usage
-Current:   Sprint 4 closeout complete
-Next:      Sprint 5 Knowledge / RAG
+Completed: Sprint 5 Knowledge / RAG first-version closeout
+Current:   Sprint 6 Workflow, Story 6.2 Definition & Node Contract
+Next:      Sprint 6.3 Sequential Executor
 ```
 
-当前学习与实施总控文档：[Sprint 4 AI Gateway](Sprint/Sprint4.md)。
+当前学习与实施总控文档：[Sprint 6 Workflow](Sprint/Sprint6.md)。
 
 ## 开始新任务时怎么读
 
@@ -23,7 +24,7 @@ Next:      Sprint 5 Knowledge / RAG
 1. [项目宪法](PROJECT_CONSTITUTION.md)：最高学习与工程约束。
 2. [项目愿景](项目愿景.md)：产品方向、目标用户和成功标准。
 3. [AI 协作规范](AI协作规范.md)：开发者与 AI 的协作方式。
-4. [已完成 Sprint 4](Sprint/Sprint4.md)：AI Gateway 目标、边界、Story 和验收证据。
+4. [当前 Sprint 6](Sprint/Sprint6.md)：Workflow 目标、边界、Story 和验收证据。
 
 ### 修改代码前追加阅读
 
@@ -105,6 +106,8 @@ Next:      Sprint 5 Knowledge / RAG
 - [Sprint 2：Session & Identity（已完成）](Sprint/Sprint2.md)
 - [Sprint 3：Storage & Resource Management（已完成）](Sprint/Sprint3.md)
 - [Sprint 4：AI Gateway（已完成）](Sprint/Sprint4.md)
+- [Sprint 5：Knowledge / RAG（已完成）](Sprint/Sprint5.md)
+- [Sprint 6：Workflow（进行中）](Sprint/Sprint6.md)
 - [Sprint 长期路线](Sprint/Sprint长期路线.md)
 
 历史 Sprint 是阶段交付证据。即使其中保留了当时的“候选”或“下一步”表述，也不应改写为新 Sprint 的当前计划；当前状态以本页、项目宪法和当前 Sprint 为准。

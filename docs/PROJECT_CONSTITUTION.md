@@ -169,10 +169,10 @@ AI 不得：
 
 ```text
 Current Sprint: Sprint 6 Workflow (in progress)
-Current Story: Story 6.0 Business Case & System Map
+Current Story: Story 6.2 Definition & Node Contract
 Current Goal:
   - Map the knowledge revision business case from submission through approval, indexing and RAG use
-  - Separate business state from Workflow execution state before designing the Domain model
+  - Continue from validated code-defined Definitions into the sequential executor
 
 Completed:
   - Authentication, JWT and global business error mapping
@@ -203,10 +203,12 @@ Completed:
   - RAGChatService integration through PromptCenter, ChatService, AIGateway and terminal Usage
   - Authenticated non-stream RAG API with answer, Usage and structured Citation
   - ADR-0030 through ADR-0032 and Sprint 5 first-version closeout verification
+  - WorkflowRun, WorkflowStepRun and WorkflowAttempt models, migration and database constraints
+  - Immutable Workflow Definition, Node Protocol, Registry and startup validation
 
 Not Started:
-  - Workflow Definition, WorkflowRun, StepRun and Attempt Domain
-  - Workflow state machine, executor, retry, approval and API
+  - Sequential Executor and persisted state transition Service
+  - Retry, approval and API
 ```
 
 新的 AI 助手开始工作前，必须读取当前 Sprint 文档和相关 ADR，不要求开发者重新口头解释已有项目背景。
